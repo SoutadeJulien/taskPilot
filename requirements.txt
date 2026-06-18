@@ -1,0 +1,5 @@
+# Dépendances runtime de TaskPilot (embarquées dans l'exe PyInstaller).
+# pywinpty : pseudo-terminal Windows (ConPTY) pour les consoles interactives.
+# pyte     : émulateur de terminal VT100 (rendu de la sortie du PTY).
+pywinpty>=2.0
+pyte>=0.8

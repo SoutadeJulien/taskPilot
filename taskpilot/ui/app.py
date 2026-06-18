@@ -42,8 +42,8 @@ class App(tk.Tk):
                      tooltip="Lancer les tasks VS Code du projet et suivre "
                              "leurs consoles")
         notebook.add(self.process_tab, text="☰  Process",
-                     tooltip="Lister et gérer les process en cours sur la "
-                             "machine")
+                     tooltip="Suivre et gérer l'arbre des process de chaque "
+                             "task en cours")
         # L'onglet Process ne lance sa collecte (sous-process lourds) qu'au
         # premier affichage, pas au demarrage de l'application.
         notebook.on_change(self._on_tab_change)

@@ -1,4 +1,9 @@
-"""Onglet Process : liste, surveillance et destruction des process Node."""
+"""Onglet Process : arbre des process des tasks, surveillance et destruction.
+
+On affiche, groupé par task, l'intégralité de l'arbre de process lancé par
+chaque console (quel que soit l'exécutable : node, python, npm, shell…) — pas
+seulement les process Node.
+"""
 
 import threading
 import time
@@ -6,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from taskpilot.core.processes import (
-    find_node_processes, format_memory, kill_process)
+    find_task_processes, format_memory, kill_process)
 from taskpilot.core.system import NCPU
 from taskpilot.ui import theme
 from taskpilot.ui.rounded import RoundedFrame
@@ -25,6 +30,7 @@ class ProcessTab(ttk.Frame):
         super().__init__(parent)
         self.app = app
         self._items = {}             # pid -> {"item_id", "proc"}
+        self._task_items = {}        # label de task -> item_id (ligne parent)
         self._prev_cpu = {}          # pid -> (cpu_time, timestamp)
         self._after_id = None
         self._sort_col = "cpu"
@@ -45,7 +51,7 @@ class ProcessTab(ttk.Frame):
         make_button(bar, "✕  Tuer la sélection", self.kill_selected).pack(
             side="left", padx=6)
         make_button(bar, "⊗  Tuer TOUS", self.kill_all,
-                    fg=theme.RED).pack(side="left")
+                    danger=True).pack(side="left")
 
         self.live = tk.BooleanVar(value=True)
         tk.Checkbutton(
@@ -68,8 +74,9 @@ class ProcessTab(ttk.Frame):
         for col, label in HEADINGS.items():
             self.tree.heading(col, text=label,
                               command=lambda c=col: self._sort_by(c))
-        self.tree.column("#0", width=34, minwidth=34, stretch=False,
-                         anchor="center")
+        self.tree.heading("#0", text="Task")
+        self.tree.column("#0", width=200, minwidth=120, stretch=False,
+                         anchor="w")
         self.tree.column("port", width=80, minwidth=60, stretch=False, anchor="e")
         self.tree.column("pid", width=80, minwidth=60, stretch=False, anchor="e")
         self.tree.column("cpu", width=80, minwidth=60, stretch=False, anchor="e")
@@ -77,6 +84,7 @@ class ProcessTab(ttk.Frame):
         self.tree.column("cmd", width=480, minwidth=200, stretch=True, anchor="w")
         self.tree.tag_configure("odd", background=theme.BG)
         self.tree.tag_configure("even", background=theme.BG_ALT)
+        self.tree.tag_configure("task", background=theme.HEAD, foreground=theme.FG)
 
         scroll = ttk.Scrollbar(container, orient="vertical",
                                command=self.tree.yview)
@@ -106,11 +114,14 @@ class ProcessTab(ttk.Frame):
         if self._loading:
             return
         self._loading = True
-        threading.Thread(target=self._worker, daemon=True).start()
+        # Les racines sont lues ici (thread UI) : elles touchent aux consoles.
+        roots = self.app.tasks_tab.running_task_roots()
+        threading.Thread(target=self._worker, args=(roots,),
+                         daemon=True).start()
 
-    def _worker(self):
+    def _worker(self, roots):
         try:
-            procs, err = find_node_processes(), None
+            procs, err = find_task_processes(roots), None
         except Exception as e:  # noqa: BLE001
             procs, err = None, e
         self.after(0, self._render, procs, err)
@@ -145,24 +156,53 @@ class ProcessTab(ttk.Frame):
             return
 
         self._compute_cpu(procs)
+
+        # Regroupement par task, en conservant l'ordre d'apparition.
+        by_task, order = {}, []
+        for p in procs:
+            if p.task not in by_task:
+                by_task[p.task] = []
+                order.append(p.task)
+            by_task[p.task].append(p)
+
+        # Retire les process disparus, puis les lignes de task devenues vides.
         current = {p.pid for p in procs}
         for pid in list(self._items):
             if pid not in current:
-                self.tree.delete(self._items[pid]["item_id"])
-                self._items.pop(pid)
+                self._safe_delete(self._items.pop(pid)["item_id"])
+        for label in list(self._task_items):
+            if label not in by_task:
+                self._safe_delete(self._task_items.pop(label))
 
-        for p in procs:
-            vals = self._row_values(p)
-            if p.pid in self._items:
-                item_id = self._items[p.pid]["item_id"]
-                self.tree.item(item_id, values=vals)
-            else:
-                item_id = self.tree.insert(
-                    "", "end", image=self.app.node_icon, values=vals)
-            self._items[p.pid] = {"item_id": item_id, "proc": p}
+        # (Re)crée les lignes parentes (tasks) et leurs process enfants.
+        for label in order:
+            parent = self._task_items.get(label)
+            if parent is None or not self.tree.exists(parent):
+                parent = self.tree.insert(
+                    "", "end", text=f"  {label}", open=True,
+                    image=self.app.node_icon, tags=("task",))
+                self._task_items[label] = parent
+            for p in by_task[label]:
+                vals = self._row_values(p)
+                entry = self._items.get(p.pid)
+                if entry and self.tree.exists(entry["item_id"]):
+                    self.tree.item(entry["item_id"], values=vals)
+                    if self.tree.parent(entry["item_id"]) != parent:
+                        self.tree.move(entry["item_id"], parent, "end")
+                else:
+                    entry = {"item_id": self.tree.insert(parent, "end",
+                                                         values=vals)}
+                entry["proc"] = p
+                self._items[p.pid] = entry
 
         self._apply_sort()
-        self._update_status(procs)
+        self._update_status(procs, len(order))
+
+    def _safe_delete(self, item_id):
+        try:
+            self.tree.delete(item_id)
+        except tk.TclError:
+            pass
 
     @staticmethod
     def _row_values(p):
@@ -175,10 +215,16 @@ class ProcessTab(ttk.Frame):
         port = ", ".join(str(x) for x in p.ports) if p.ports else "-"
         return (port, p.pid, cpu, format_memory(p.mem), p.cmd)
 
-    def _update_status(self, procs):
+    def _update_status(self, procs, ntasks):
+        if not procs and not self._flash:
+            self.status.config(
+                text="  Aucune task en cours. Lance une task (ou ouvre une "
+                     "console) dans l'onglet Tasks.")
+            return
         total_mem = sum(p.mem for p in procs)
         total_cpu = sum(p.cpu for p in procs if p.cpu is not None)
-        text = (f"  {len(procs)} process node   •   CPU total ≈ {total_cpu:.1f} %"
+        text = (f"  {len(procs)} process   •   {ntasks} task(s)"
+                f"   •   CPU total ≈ {total_cpu:.1f} %"
                 f"   •   Mémoire totale {format_memory(total_mem)}")
         if self._flash:
             text = f"  {self._flash}   —  {text.strip()}"
@@ -209,11 +255,17 @@ class ProcessTab(ttk.Frame):
                 return p.mem or -1
             return str(p.cmd).lower()
 
-        ordered = sorted(self._items, key=key, reverse=self._sort_reverse)
-        for idx, pid in enumerate(ordered):
-            item_id = self._items[pid]["item_id"]
-            self.tree.move(item_id, "", idx)
-            self.tree.item(item_id, tags=("even" if idx % 2 else "odd",))
+        # Tri appliqué indépendamment aux enfants de chaque task.
+        kids_by_parent = {}
+        for pid, entry in self._items.items():
+            parent = self.tree.parent(entry["item_id"])
+            kids_by_parent.setdefault(parent, []).append(pid)
+        for parent, pids in kids_by_parent.items():
+            for idx, pid in enumerate(sorted(pids, key=key,
+                                             reverse=self._sort_reverse)):
+                item_id = self._items[pid]["item_id"]
+                self.tree.move(item_id, parent, idx)
+                self.tree.item(item_id, tags=("even" if idx % 2 else "odd",))
 
         for col_, base in HEADINGS.items():
             mark = ("  ▼" if self._sort_reverse else "  ▲") if col_ == col else ""
@@ -235,11 +287,14 @@ class ProcessTab(ttk.Frame):
     # -- Kill ----------------------------------------------------------------
     def _selected_pids(self):
         pids = []
+        parents = set(self._task_items.values())
         for item in self.tree.selection():
-            try:
-                pids.append(int(self.tree.item(item, "values")[1]))
-            except (ValueError, IndexError):
-                pass
+            # Sélectionner une ligne de task vise tous ses process enfants.
+            targets = self.tree.get_children(item) if item in parents else (item,)
+            for it in targets:
+                vals = self.tree.item(it, "values")
+                if vals and str(vals[1]).isdigit():
+                    pids.append(int(vals[1]))
         return pids
 
     def kill_selected(self):
@@ -252,10 +307,11 @@ class ProcessTab(ttk.Frame):
     def kill_all(self):
         pids = [pid for pid in self._items]
         if not pids:
-            messagebox.showinfo("Info", "Aucun process node à tuer.")
+            messagebox.showinfo("Info", "Aucun process de task à tuer.")
             return
-        if not messagebox.askyesno("Confirmer",
-                                   f"Tuer les {len(pids)} process node ?"):
+        if not messagebox.askyesno(
+                "Confirmer",
+                f"Tuer les {len(pids)} process des tasks en cours ?"):
             return
         self._kill_pids(pids)
 

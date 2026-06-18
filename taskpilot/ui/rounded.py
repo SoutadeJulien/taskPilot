@@ -26,14 +26,22 @@ def _round_top_points(x1, y1, x2, y2, r):
 class _RoundedTab(tk.Canvas):
     """Un onglet : pilule (par defaut) ou facon terminal (haut arrondi)."""
 
+    #: Glyphe de la croix de fermeture (memes codes que les boutons).
+    CLOSE_GLYPH = "✕"
+
     def __init__(self, parent, text, command, *, radius, font,
                  bg_idle, bg_sel, fg_idle, fg_sel, pad_x=14, pad_y=7,
-                 top_only=False, accent=None, bg_hover=None, group_color=None):
+                 top_only=False, accent=None, bg_hover=None, group_color=None,
+                 on_close=None):
         self._font = theme.get_font(font)
         self._pad_x = pad_x
         self._pad_y = pad_y
         self._text = text
-        self._tw = self._font.measure(text) + 2 * pad_x
+        self._on_close = on_close
+        # Largeur reservee a droite pour la croix de fermeture (glyphe + marge).
+        self._close_w = (self._font.measure(self.CLOSE_GLYPH) + 10
+                         if on_close else 0)
+        self._tw = self._font.measure(text) + 2 * pad_x + self._close_w
         self._th = self._font.metrics("linespace") + 2 * pad_y
         super().__init__(parent, width=self._tw, height=self._th,
                          bg=widget_bg(parent), highlightthickness=0, bd=0,
@@ -47,10 +55,17 @@ class _RoundedTab(tk.Canvas):
         self._group_color = group_color
         self._selected = False
         self._hovered = False
+        self._close_hover = False
         self._draw()
         self.bind("<Button-1>", lambda _e: command())
         self.bind("<Enter>", self._on_enter)
         self.bind("<Leave>", self._on_leave)
+        if on_close:
+            # Liaisons par tag : la croix intercepte le clic (et coupe la chaine
+            # via « break » pour ne declencher ni la selection ni le drag).
+            self.tag_bind("close", "<Enter>", self._on_close_enter)
+            self.tag_bind("close", "<Leave>", self._on_close_leave)
+            self.tag_bind("close", "<Button-1>", self._on_close_click)
 
     def _on_enter(self, _e):
         self._hovered = True
@@ -59,8 +74,44 @@ class _RoundedTab(tk.Canvas):
 
     def _on_leave(self, _e):
         self._hovered = False
+        self._close_hover = False
         if not self._selected:
             self._draw()
+
+    def _on_close_enter(self, _e):
+        # On NE redessine PAS tout l'onglet ici : ``_draw`` ferait
+        # ``delete("all")`` + recreation de la croix sous le curseur, ce qui
+        # regenere des <Enter>/<Leave> sur le tag « close » -> boucle infinie
+        # qui fige l'UI. On se contente de recolorer le glyphe en place.
+        if self._close_hover:
+            return
+        self._close_hover = True
+        self._recolor_close()
+
+    def _on_close_leave(self, _e):
+        if not self._close_hover:
+            return
+        self._close_hover = False
+        self._recolor_close()
+
+    def _recolor_close(self):
+        """Recolore la croix selon l'etat de survol, sans rien recreer."""
+        fg = self._fg_sel if self._selected else self._fg_idle
+        try:
+            self.itemconfigure(
+                "close_glyph", fill=theme.RED if self._close_hover else fg)
+        except tk.TclError:
+            pass
+
+    def _on_close_click(self, _e):
+        # IMPORTANT : on differe la fermeture via ``after_idle`` au lieu de
+        # l'executer ici. Detruire cet onglet pendant le ``<ButtonPress>`` qui
+        # nous appelle (alors que Tk tient un grab implicite du pointeur jusqu'au
+        # ``<ButtonRelease>``) laisse l'app figee sous Windows. En differant, le
+        # cycle press/release se termine d'abord, puis l'onglet est detruit.
+        if self._on_close:
+            self.after_idle(self._on_close)
+        return "break"
 
     def _draw(self):
         self.delete("all")
@@ -89,8 +140,24 @@ class _RoundedTab(tk.Canvas):
             self.create_rectangle(
                 2, 2 + self._radius, 6, y2 - 2,
                 fill=self._group_color, outline=self._group_color)
+        # Libelle centre dans la zone hors croix de fermeture.
         draw_centered_label(self, self._text, self._font,
-                            self._tw / 2, self._th / 2, fg)
+                            (self._tw - self._close_w) / 2, self._th / 2, fg)
+        if self._on_close:
+            self._draw_close(fill, fg)
+
+    def _draw_close(self, fill, fg):
+        """Dessine la croix de fermeture a droite de l'onglet."""
+        x0 = self._tw - 2 - self._close_w
+        # Zone cliquable opaque (memes pixels que le fond) sous le glyphe. On
+        # demarre sous le rayon pour ne pas peindre par-dessus le coin arrondi
+        # haut-droit (sinon un ergot carre depasse de l'onglet).
+        self.create_rectangle(x0, 2 + self._radius, self._tw - 2, self._th,
+                               fill=fill, outline=fill, tags="close")
+        color = theme.RED if self._close_hover else fg
+        self.create_text((x0 + self._tw - 2) / 2, self._th / 2,
+                         text=self.CLOSE_GLYPH, fill=color, font=self._font,
+                         tags=("close", "close_glyph"))
 
     def set_selected(self, selected: bool):
         self._selected = bool(selected)
@@ -99,7 +166,8 @@ class _RoundedTab(tk.Canvas):
     def set_text(self, text):
         """Change le libelle de l'onglet et reajuste sa largeur."""
         self._text = text
-        self._tw = self._font.measure(text) + 2 * self._pad_x
+        self._tw = (self._font.measure(text) + 2 * self._pad_x
+                    + self._close_w)
         self.configure(width=self._tw)
         self._draw()
 
@@ -143,9 +211,11 @@ class RoundedNotebook(tk.Frame):
         self._drag = None         # etat du glisser-deposer d'onglet en cours
 
     # -- API ----------------------------------------------------------------
-    def add(self, child, text="", tooltip=None, group=None, group_color=None):
+    def add(self, child, text="", tooltip=None, group=None, group_color=None,
+            on_close=None):
         tab = _RoundedTab(self._tabbar, text, lambda c=child: self.select(c),
-                          group_color=group_color, **self._tab_opts)
+                          group_color=group_color, on_close=on_close,
+                          **self._tab_opts)
         tab.bind("<MouseWheel>", self._on_tab_wheel)
         tab.bind("<ButtonPress-1>", lambda e, c=child: self._drag_start(c, e),
                  add="+")

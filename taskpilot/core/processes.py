@@ -11,10 +11,12 @@ from taskpilot.core.system import IS_WIN, NO_WINDOW
 
 @dataclass
 class NodeProcess:
-    """Un process Node observe a un instant donne.
+    """Un process observe a un instant donne.
 
     ``cpu_time`` est le temps CPU cumule (secondes) ; ``cpu`` est le
     pourcentage instantane calcule par l'appelant a partir des deltas.
+    ``ppid`` et ``task`` ne sont remplis que pour les arbres de process des
+    tasks (cf. ``find_task_processes``).
     """
 
     pid: int
@@ -23,6 +25,8 @@ class NodeProcess:
     cpu_time: Optional[float]             # secondes cumulees
     ports: List[int] = field(default_factory=list)
     cpu: Optional[float] = None           # % instantane (rempli plus tard)
+    ppid: Optional[int] = None            # PID parent (arbres de tasks)
+    task: Optional[str] = None            # libelle de la task d'appartenance
 
 
 def get_listening_ports():
@@ -156,6 +160,142 @@ def _find_unix(port_map) -> List[NodeProcess]:
             cpu_time=parse_ps_time(cputime),
             ports=port_map.get(int(pid), [])))
     return procs
+
+
+def find_task_processes(roots) -> List[NodeProcess]:
+    """Liste tous les process des tasks, arbre complet.
+
+    ``roots`` est une liste de couples ``(pid, label)`` : le process racine
+    lance par chaque console et le libelle de la task associee. On enumere tous
+    les process de la machine, on reconstruit la hierarchie parent -> enfants
+    puis on collecte, pour chaque racine, l'integralite de sa descendance.
+    Chaque process retourne porte le ``task`` de la racine qui l'a capture en
+    premier (pas de doublon entre tasks).
+    """
+    if not roots:
+        return []
+    table = _all_processes()
+    if not table:
+        return []
+    port_map = get_listening_ports()
+
+    children = {}
+    for pid, info in table.items():
+        children.setdefault(info["ppid"], []).append(pid)
+
+    procs: List[NodeProcess] = []
+    seen = set()
+    for root_pid, label in roots:
+        stack = [root_pid]
+        while stack:
+            pid = stack.pop()
+            if pid in seen:
+                continue
+            seen.add(pid)
+            info = table.get(pid)
+            if info is None:
+                continue
+            procs.append(NodeProcess(
+                pid=pid, cmd=info["cmd"] or "?", mem=info["mem"],
+                cpu_time=info["cpu_time"], ports=port_map.get(pid, []),
+                ppid=info["ppid"], task=label))
+            stack.extend(children.get(pid, []))
+    return procs
+
+
+def _all_processes() -> dict:
+    """Table ``pid -> {ppid, cmd, mem, cpu_time}`` de tous les process."""
+    if IS_WIN:
+        return _all_processes_windows()
+    return _all_processes_unix()
+
+
+def _all_processes_windows() -> dict:
+    table = {}
+    try:
+        out = subprocess.check_output(
+            ["wmic", "process", "get",
+             "CommandLine,KernelModeTime,ParentProcessId,ProcessId,"
+             "UserModeTime,WorkingSetSize", "/format:csv"],
+            text=True, errors="replace", stderr=subprocess.DEVNULL,
+            creationflags=NO_WINDOW,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return _all_processes_powershell()
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("node,"):
+            continue
+        parts = line.split(",")
+        if len(parts) < 7:
+            continue
+        # Colonnes (ordre alphabetique wmic, prefixees du nom de machine) :
+        # Node,CommandLine,KernelModeTime,ParentProcessId,ProcessId,
+        # UserModeTime,WorkingSetSize. On lit par la fin (champs numeriques),
+        # la CommandLine pouvant contenir des virgules.
+        working, user, pid = parts[-1].strip(), parts[-2].strip(), parts[-3].strip()
+        ppid, kernel = parts[-4].strip(), parts[-5].strip()
+        cmd = ",".join(parts[1:-5]).strip()
+        if not pid.isdigit():
+            continue
+        if kernel.isdigit() and user.isdigit():
+            cpu_time = (int(kernel) + int(user)) / 1e7
+        else:
+            cpu_time = None
+        table[int(pid)] = {
+            "ppid": int(ppid) if ppid.isdigit() else None,
+            "cmd": cmd, "mem": int(working) if working.isdigit() else 0,
+            "cpu_time": cpu_time}
+    return table
+
+
+def _all_processes_powershell() -> dict:
+    """Repli si wmic est absent (Windows recent) : Get-CimInstance."""
+    table = {}
+    script = (
+        "Get-CimInstance Win32_Process | ForEach-Object { "
+        "'{0}`t{1}`t{2}`t{3}`t{4}' -f $_.ProcessId,$_.ParentProcessId,"
+        "$_.WorkingSetSize,($_.KernelModeTime+$_.UserModeTime),$_.CommandLine }"
+    )
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            text=True, errors="replace", stderr=subprocess.DEVNULL,
+            creationflags=NO_WINDOW,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return {}
+    for line in out.splitlines():
+        f = line.split("\t", 4)
+        if len(f) < 4 or not f[0].isdigit():
+            continue
+        ticks = int(f[3]) if f[3].isdigit() else None
+        table[int(f[0])] = {
+            "ppid": int(f[1]) if f[1].isdigit() else None,
+            "cmd": f[4] if len(f) > 4 else "",
+            "mem": int(f[2]) if f[2].isdigit() else 0,
+            "cpu_time": ticks / 1e7 if ticks is not None else None}
+    return table
+
+
+def _all_processes_unix() -> dict:
+    table = {}
+    try:
+        out = subprocess.check_output(
+            ["ps", "-eo", "pid,ppid,rss,time,args"], text=True, errors="replace")
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return {}
+    for line in out.splitlines()[1:]:
+        fields = line.split(None, 4)
+        if len(fields) < 5 or not fields[0].isdigit():
+            continue
+        pid, ppid, rss, cputime, args = fields
+        table[int(pid)] = {
+            "ppid": int(ppid) if ppid.isdigit() else None,
+            "cmd": args.strip(),
+            "mem": int(rss) * 1024 if rss.isdigit() else 0,
+            "cpu_time": parse_ps_time(cputime)}
+    return table
 
 
 def parse_ps_time(s) -> Optional[float]:

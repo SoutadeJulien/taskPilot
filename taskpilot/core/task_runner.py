@@ -26,10 +26,14 @@ EVENT_EXIT = "exit"
 class TaskConsole:
     """Gere un process unique : capture sa sortie et le tue avec son arbre."""
 
-    def __init__(self, label: str, spec: CommandSpec, log_path: str = None):
+    def __init__(self, label: str, spec: CommandSpec, log_path: str = None,
+                 interactive: bool = False):
         self.label = label
         self.spec = spec
         self.log_path = log_path
+        #: Si vrai, le process garde un stdin ouvert : on peut lui envoyer des
+        #: commandes via ``send`` (consoles interactives type shell).
+        self.interactive = interactive
         self.proc = None
         self.job = None
         self.queue = queue.Queue()
@@ -49,7 +53,7 @@ class TaskConsole:
                 env=self.spec.env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE if self.interactive else subprocess.DEVNULL,
                 creationflags=NO_WINDOW,
                 preexec_fn=preexec,
                 bufsize=0,
@@ -126,6 +130,22 @@ class TaskConsole:
             self.queue.put((EVENT_EXIT, self.returncode))
             self._log(f"\n[exit code {self.returncode}]\n")
             self._close_log()
+
+    # -- Entree interactive --------------------------------------------------
+    def send(self, text: str):
+        """Ecrit du texte brut dans le stdin du process (frappes clavier).
+
+        Aucun écho ici : la couche UI affiche déjà ce que l'utilisateur tape
+        directement dans la console.
+        """
+        if not (self.proc and self.proc.stdin):
+            return
+        self._log(text)
+        try:
+            self.proc.stdin.write(text.encode("utf-8"))
+            self.proc.stdin.flush()
+        except (OSError, ValueError):
+            pass
 
     # -- Etat / arret --------------------------------------------------------
     def is_running(self) -> bool:

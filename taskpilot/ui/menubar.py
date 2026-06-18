@@ -122,6 +122,68 @@ class MenuBar(tk.Frame):
         self._close_all()
 
 
+class PopupMenu(tk.Frame):
+    """Menu déroulant autonome (hors barre de menus) au même style sombre.
+
+    Sert pour un bouton qui ouvre une liste de choix (ex. « + Console »). Le
+    widget lui-même n'est jamais affiché : il sert d'hôte (master du Toplevel)
+    et expose l'API (``_popups`` / ``_close_all``) attendue par ``_Popup``.
+    """
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self._builder = _MenuBuilder()
+        self._popups = []
+        self._bound = False
+        self._anchor = None
+
+    def add_command(self, label, command, *, accelerator=None):
+        self._builder.add_command(label, command, accelerator=accelerator)
+
+    def add_separator(self):
+        self._builder.add_separator()
+
+    def is_open(self):
+        return bool(self._popups)
+
+    def hide(self):
+        self._close_all()
+
+    def show(self, x, y, anchor=None):
+        """Affiche le menu, coin haut-gauche en (x, y) écran.
+
+        ``anchor`` est le widget déclencheur (ex. le bouton « + Console ») : un
+        clic dessus est ignoré par le handler global, sinon il rouvrirait puis
+        refermerait aussitôt le menu (le binding bouton précède le binding
+        toplevel dans l'ordre de propagation Tk).
+        """
+        self._close_all()
+        self._anchor = anchor
+        self._popups.append(_Popup(self, self._builder.items, x, y))
+        if not self._bound:
+            self.winfo_toplevel().bind("<Button-1>", self._on_global_click,
+                                       add="+")
+            self._bound = True
+
+    def _close_all(self):
+        for popup in self._popups:
+            try:
+                popup.destroy()
+            except tk.TclError:
+                pass
+        self._popups = []
+
+    def _on_global_click(self, event):
+        if not self._popups:
+            return
+        node = event.widget
+        while node is not None:
+            if node in self._popups or node is self._anchor:
+                return
+            node = getattr(node, "master", None)
+        self._close_all()
+
+
 class _Popup(tk.Toplevel):
     """Un menu déroulant : liste d'entrées dans une fenêtre sans décoration."""
 

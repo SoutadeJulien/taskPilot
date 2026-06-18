@@ -45,7 +45,14 @@ class ConsolePanel(tk.Frame):
         self._pending = ""        # texte de la ligne partielle affichee
         self._has_pending = False  # une ligne partielle est-elle affichee ?
         self._build_header()
+        # Le pied est construit AVANT la zone de texte : pose en ``side=bottom``,
+        # il reserve sa hauteur avant que la zone de texte (expand) ne prenne le
+        # reste. Sans cela, la zone extensible avalerait tout l'espace.
+        self._build_footer()
         self._build_text()
+
+    def _build_footer(self):
+        """Pied de panneau (vide par defaut ; cf. ``InteractiveConsolePanel``)."""
 
     def _build_header(self):
         # Barre de titre arrondie, detachee de la carte de sortie.
@@ -58,19 +65,12 @@ class ConsolePanel(tk.Frame):
             header, text="●  en cours", bg=theme.CONSOLE_HEAD, fg=theme.ACCENT,
             font=theme.FONT_UI_BOLD, anchor="w", padx=6, pady=2)
         self.status.pack(side="left")
-        self.btn_close = make_button(header, "✕ Fermer", self._close)
-        self.btn_close.pack(side="right", padx=(0, 4), pady=2)
-        add_tooltip(self.btn_close,
-                    "Fermer cette console (disponible une fois le process arrêté)")
-        self.btn_kill = make_button(header, "■ Arrêter", self._kill, danger=True)
-        self.btn_kill.pack(side="right", padx=4, pady=2)
-        add_tooltip(self.btn_kill, "Arrêter le process de cette console")
+        # La fermeture (et l'arrêt du process) se fait via la croix de l'onglet.
         self.btn_restart = make_button(
             header, "↻ Redémarrer", self._restart)
         self.btn_restart.pack(side="right", padx=4, pady=2)
         add_tooltip(self.btn_restart,
                     "Relancer la commande dans cette console (nouveau process)")
-        self.btn_close.set_enabled(False)
 
     def _build_text(self):
         card = RoundedFrame(self, bg=theme.CONSOLE_BG,
@@ -131,6 +131,23 @@ class ConsolePanel(tk.Frame):
             self.text.see("end")
 
     @staticmethod
+    def _apply_cr(line: str):
+        """Applique la sémantique du retour chariot (``\\r``) sur UNE ligne.
+
+        Un ``\\r`` ramène le curseur en début de ligne : ce qui suit écrase le
+        début. Sans ce traitement, les barres de progression (npm, webpack,
+        pip, spinners… qui réécrivent la ligne via ``\\r`` sans ``\\n``)
+        s'empileraient en une ligne géante grandissant sans fin — chaque
+        rafraîchissement la ré-insérant entièrement, d'où un gel de l'UI.
+        """
+        if "\r" not in line:
+            return line
+        out = ""
+        for seg in line.split("\r"):
+            out = seg + out[len(seg):]   # écrase depuis la colonne 0
+        return out
+
+    @staticmethod
     def _line_tag(line: str):
         """Choisit un tag de coloriage : ligne de commande, sinon niveau de log."""
         if line.startswith("$ "):
@@ -152,8 +169,9 @@ class ConsolePanel(tk.Frame):
             self.text.delete("pending", "end-1c")
         buf = self._pending + text
         lines = buf.split("\n")
-        self._pending = lines.pop()
+        self._pending = self._apply_cr(lines.pop())
         for line in lines:
+            line = self._apply_cr(line)
             tag = self._line_tag(line)
             self.text.insert("end", line + "\n", tag or ())
         if self._pending:
@@ -177,8 +195,6 @@ class ConsolePanel(tk.Frame):
             self.status.config(text="●  terminé (0)", fg=theme.CONSOLE_MUTED)
         else:
             self.status.config(text=f"●  arrêté (code {code})", fg=theme.RED)
-        self.btn_kill.set_enabled(False)
-        self.btn_close.set_enabled(True)
 
     def attach_console(self, console):
         """Rattache un nouveau process (relance) et réinitialise l'affichage."""
@@ -189,8 +205,6 @@ class ConsolePanel(tk.Frame):
         self.text.delete("1.0", "end")
         self.text.config(state="disabled")
         self.status.config(text="●  en cours", fg=theme.ACCENT)
-        self.btn_kill.set_enabled(True)
-        self.btn_close.set_enabled(False)
 
     def copy_output(self):
         """Copie tout le contenu de la console dans le presse-papiers."""
@@ -207,12 +221,163 @@ class ConsolePanel(tk.Frame):
         self._has_pending = False
 
     # -- Actions -------------------------------------------------------------
-    def _kill(self):
-        self.console.kill()
-
     def _restart(self):
         if self.on_restart:
             self.on_restart(self)
 
-    def _close(self):
-        self.on_close(self)
+
+class InteractiveConsolePanel(ConsolePanel):
+    """Console interactive « ligne-à-ligne » : on tape directement dedans.
+
+    Repli quand le vrai terminal (ConPTY) est indisponible. On écrit au clavier
+    en bas de la console comme dans un terminal : les caractères s'affichent en
+    place, la sortie du shell s'insère au-dessus de la ligne en cours, et chaque
+    ligne validée par ``Entrée`` est transmise au stdin du process. La zone déjà
+    affichée (sortie + commandes envoyées) ne peut pas être éditée.
+
+    Le repère ``inpstart`` marque le début de la ligne en cours de saisie ;
+    ``self._input`` en est la source de vérité (le shell, lu via un tube,
+    n'écho pas la frappe).
+    """
+
+    def __init__(self, parent, console, on_close, on_restart=None):
+        self._history = []
+        self._hist_idx = None
+        self._input = ""
+        super().__init__(parent, console, on_close, on_restart)
+
+    def _build_text(self):
+        super()._build_text()
+        # Le widget devient éditable, mais toutes les frappes passent par nos
+        # gestionnaires (qui renvoient « break ») : la zone amont reste figée.
+        self.text.config(state="normal", insertbackground=theme.FG)
+        self.text.mark_set("inpstart", "end-1c")
+        self.text.mark_gravity("inpstart", "left")
+        self.text.bind("<Key>", self._on_key)
+        self.text.bind("<Return>", self._on_return)
+        self.text.bind("<KP_Enter>", self._on_return)
+        self.text.bind("<BackSpace>", self._on_backspace)
+        self.text.bind("<Up>", self._history_prev)
+        self.text.bind("<Down>", self._history_next)
+        self.text.bind("<Control-v>", self._paste)
+
+    def focus_input(self):
+        try:
+            self.text.focus_set()
+            self.text.mark_set("insert", "end")
+        except tk.TclError:
+            pass
+
+    # -- Affichage de la saisie ----------------------------------------------
+    def _echo(self, text):
+        """Affiche du texte saisi en fin de console."""
+        self.text.insert("end-1c", text)
+        self.text.mark_set("insert", "end")
+        self.text.see("end")
+
+    def _redraw_input(self, text):
+        """Remplace la ligne en cours affichée par ``text`` (historique)."""
+        self.text.delete("inpstart", "end-1c")
+        self._input = text
+        self.text.insert("inpstart", text)
+        self.text.mark_set("insert", "end")
+        self.text.see("end")
+
+    # -- Sortie (insérée au-dessus de la ligne en cours) ---------------------
+    def append(self, text):
+        at_bottom = self.text.yview()[1] >= 0.999
+        saved = self._input
+        if saved:                       # retire la saisie le temps d'insérer
+            self.text.delete("inpstart", "end-1c")
+        for line in text.splitlines(keepends=True):
+            body = line[:-1] if line.endswith("\n") else line
+            tag = self._line_tag(body)
+            self.text.insert("end-1c", line, tag or ())
+        self.text.mark_set("inpstart", "end-1c")
+        if saved:                       # ré-affiche la saisie en cours
+            self.text.insert("end-1c", saved)
+        self.text.mark_set("insert", "end")
+        if at_bottom:
+            self.text.see("end")
+
+    # -- Clavier -------------------------------------------------------------
+    def _on_key(self, event):
+        if not self.console.is_running():
+            return "break"
+        ch = event.char
+        if ch and ch >= " ":            # imprimable (exclut Ctrl/Échap/etc.)
+            self._input += ch
+            self._echo(ch)
+        return "break"
+
+    def _on_backspace(self, _e=None):
+        if self._input:
+            self._input = self._input[:-1]
+            self.text.delete("end-2c", "end-1c")
+            self.text.see("end")
+        return "break"
+
+    def _on_return(self, _e=None):
+        if not self.console.is_running():
+            return "break"
+        line = self._input
+        self._input = ""
+        if line.strip():
+            self._history.append(line)
+        self._hist_idx = None
+        self.text.insert("end-1c", "\n")
+        self.text.mark_set("inpstart", "end-1c")
+        self.text.mark_set("insert", "end")
+        self.text.see("end")
+        self.console.send(line + "\n")
+        return "break"
+
+    def _paste(self, _e=None):
+        try:
+            data = self.clipboard_get()
+        except tk.TclError:
+            return "break"
+        parts = data.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        for i, part in enumerate(parts):
+            self._input += part
+            self._echo(part)
+            if i < len(parts) - 1:
+                self._on_return()
+        return "break"
+
+    def _history_prev(self, _e=None):
+        if not self._history:
+            return "break"
+        if self._hist_idx is None:
+            self._hist_idx = len(self._history)
+        self._hist_idx = max(0, self._hist_idx - 1)
+        self._redraw_input(self._history[self._hist_idx])
+        return "break"
+
+    def _history_next(self, _e=None):
+        if self._hist_idx is None:
+            return "break"
+        self._hist_idx += 1
+        if self._hist_idx >= len(self._history):
+            self._hist_idx = None
+            self._redraw_input("")
+        else:
+            self._redraw_input(self._history[self._hist_idx])
+        return "break"
+
+    # -- Cycle de vie --------------------------------------------------------
+    def clear(self):
+        super().clear()
+        self._input = ""
+        self.text.config(state="normal")
+        self.text.mark_set("inpstart", "end-1c")
+        self.text.mark_gravity("inpstart", "left")
+
+    def attach_console(self, console):
+        super().attach_console(console)
+        self._input = ""
+        self._hist_idx = None
+        self.text.config(state="normal")
+        self.text.mark_set("inpstart", "end-1c")
+        self.text.mark_gravity("inpstart", "left")
+        self.focus_input()

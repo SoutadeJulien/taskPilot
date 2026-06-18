@@ -6,21 +6,50 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 
 from taskpilot.core import logs
+from taskpilot.core.pty_console import HAVE_PTY, PTY_IMPORT_ERROR, PtyConsole
 from taskpilot.core.task_runner import EVENT_EXIT, EVENT_OUTPUT, TaskConsole
 from taskpilot.core.vscode_tasks import (
-    flatten_tasks, is_group_task, load_vscode_tasks, task_label)
+    CommandSpec, flatten_tasks, is_group_task, load_vscode_tasks, task_label)
 from taskpilot.ui import theme
-from taskpilot.ui.console_panel import ConsolePanel
+from taskpilot.ui.console_panel import ConsolePanel, InteractiveConsolePanel
+from taskpilot.ui.menubar import PopupMenu
+
+try:
+    # Émulateur de terminal (pyte) : présent dans l'exe, optionnel en dev.
+    from taskpilot.ui.terminal_panel import TerminalPanel
+    _TERMINAL_OK = HAVE_PTY
+    #: Raison du fallback tube quand le vrai terminal est indisponible.
+    _TERMINAL_ERROR = None if HAVE_PTY else PTY_IMPORT_ERROR
+except Exception as _e:  # noqa: BLE001
+    TerminalPanel = None
+    _TERMINAL_OK = False
+    _TERMINAL_ERROR = repr(_e)
 from taskpilot.ui.rounded import RoundedFrame, RoundedNotebook
 from taskpilot.ui.task_table import TaskTable
 from taskpilot.ui.widgets import add_tooltip, make_button
 
 #: Periode de drainage des sorties de consoles (ms).
 POLL_MS = 120
+#: Periode de drainage quand un backlog reste a vider : on repasse vite plutot
+#: que d'inserer tout d'un coup, pour que l'UI reste reactive.
+FAST_POLL_MS = 8
+#: Plafond de texte (caracteres) insere par console et par tick. Au-dela, le
+#: reste attend le prochain tour : une task tres bavarde (ou en boucle d'erreur)
+#: ne peut plus geler l'application en saturant la boucle d'evenements.
+MAX_CHARS_PER_TICK = 16 * 1024
 #: Periode de surveillance pour l'enchainement sequentiel (ms).
 WATCH_MS = 300
 #: Longueur max d'un titre d'onglet de console.
 MAX_TAB_TITLE = 22
+
+#: Types de console vierge proposes : (libelle, argv interactif du shell).
+#: Lancés derrière un vrai pseudo-terminal (ConPTY), d'où une invocation
+#: naturelle plutôt que le mode « lecture de stdin ».
+SHELL_TYPES = (
+    ("PowerShell", ["powershell.exe", "-NoLogo"]),
+    ("CMD", ["cmd.exe"]),
+    ("Bash", ["bash", "-i"]),
+)
 
 
 class TasksTab(ttk.Frame):
@@ -115,6 +144,16 @@ class TasksTab(ttk.Frame):
         hb = header.inner
         tk.Label(hb, text="Consoles", bg=theme.CONSOLE_BAR, fg=theme.FG,
                  font=theme.FONT_UI_BOLD).pack(side="left", pady=4)
+        # Bouton « + Console » : ouvre un menu de choix du type de shell.
+        self._new_btn = make_button(
+            hb, "＋ Console", self._popup_new_menu, accent=True)
+        self._new_btn.pack(side="left", padx=(12, 0))
+        add_tooltip(self._new_btn,
+                    "Ouvrir une console interactive vierge (PowerShell, CMD, Bash)")
+        self._new_menu = PopupMenu(self)
+        for display, argv in SHELL_TYPES:
+            self._new_menu.add_command(
+                display, lambda d=display, a=argv: self.new_console(d, a))
         # Ordre visuel : « Tout fermer », « Tout arrêter », « Tout redémarrer ».
         self._restart_all_btn = make_button(
             hb, "↻ Tout redémarrer", self.restart_all)
@@ -147,7 +186,8 @@ class TasksTab(ttk.Frame):
             tab_accent=theme.ACCENT, tab_bg=theme.CONSOLE_TAB_IDLE,
             tab_sel=theme.CONSOLE_TAB_SEL, tab_fg=theme.CONSOLE_MUTED,
             tab_sel_fg=theme.ACCENT)
-        self.consoles.pack(fill="both", expand=True)
+        # Un peu d'air au-dessus de la barre d'onglets des consoles.
+        self.consoles.pack(fill="both", expand=True, pady=(8, 0))
         self._empty = tk.Label(
             cwrap, text="Aucune console.\nLance une task pour voir sa sortie ici.",
             bg=theme.CONSOLE_BG, fg="#777", font=("Segoe UI", 10),
@@ -250,7 +290,8 @@ class TasksTab(ttk.Frame):
         title = (leaf.label if len(leaf.label) <= MAX_TAB_TITLE
                  else leaf.label[:MAX_TAB_TITLE - 1] + "…")
         self.consoles.add(panel, text=title, tooltip=leaf.label,
-                          group=group, group_color=group_color)
+                          group=group, group_color=group_color,
+                          on_close=lambda p=panel: self._close_panel(p))
         self.consoles.select(panel)
         self.panels.append(panel)
         self._empty.place_forget()
@@ -277,6 +318,80 @@ class TasksTab(ttk.Frame):
 
         run_next(0)
 
+    # -- Console interactive vierge ------------------------------------------
+    def _popup_new_menu(self):
+        # Clic sur le bouton : bascule (ferme si déjà ouvert, sinon ouvre).
+        if self._new_menu.is_open():
+            self._new_menu.hide()
+            return
+        b = self._new_btn
+        self._new_menu.show(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height(),
+                            anchor=b)
+
+    def new_console(self, display, argv):
+        """Ouvre une console interactive vierge pour le shell choisi.
+
+        Privilégie un vrai terminal (ConPTY + ``pyte``) ; à défaut (pywinpty
+        absent), retombe sur une console ligne-à-ligne via tube.
+        """
+        cwd = self.project.get().strip() or os.path.expanduser("~")
+        log_path = logs.new_log_path(display) if self.settings.save_logs else None
+        if _TERMINAL_OK:
+            spec = CommandSpec(argv=list(argv), shell=False, cwd=cwd, env=None,
+                               display=display)
+            console = PtyConsole(display, spec, log_path=log_path)
+            panel = TerminalPanel(self.consoles, console, self._close_panel,
+                                  self._restart_panel)
+        else:
+            spec = CommandSpec(argv=self._fallback_argv(argv), shell=False,
+                               cwd=cwd, env=None, display=display)
+            console = TaskConsole(display, spec, log_path=log_path,
+                                  interactive=True)
+            panel = InteractiveConsolePanel(self.consoles, console,
+                                            self._close_panel, self._restart_panel)
+        self.consoles.add(panel, text=display, tooltip=f"Console {display}",
+                          on_close=lambda p=panel: self._close_panel(p))
+        self.consoles.select(panel)
+        self.panels.append(panel)
+        self._empty.place_forget()
+        console.start()
+        if not _TERMINAL_OK:
+            # Mode tube (stdin n'est pas un vrai TTY) : les programmes
+            # interactifs/plein écran (claude, REPL…) basculent en mode
+            # non-interactif et peuvent échouer. On l'indique explicitement.
+            console.queue.put((EVENT_OUTPUT,
+                               "⚠ Terminal PTY indisponible — mode tube : les "
+                               "programmes interactifs (claude…) peuvent "
+                               f"échouer.\n   Raison : {_TERMINAL_ERROR}\n"))
+        panel.focus_input()
+        self._refresh_kill_all()
+        return panel
+
+    @staticmethod
+    def _fallback_argv(argv):
+        """Adapte l'argv au mode tube (sans PTY) : PowerShell lit stdin."""
+        if argv and "powershell" in argv[0].lower():
+            return ["powershell.exe", "-NoLogo", "-NoProfile", "-Command", "-"]
+        if argv and argv[0].lower().startswith("bash"):
+            return ["bash"]
+        return list(argv)
+
+    def running_task_roots(self):
+        """Couples ``(pid, label)`` des process racines encore en cours.
+
+        Consommé par l'onglet Process pour reconstruire l'arbre des process de
+        chaque task (et de chaque console interactive).
+        """
+        roots = []
+        for p in self.panels:
+            c = p.console
+            if c.is_running() and c.proc is not None:
+                try:
+                    roots.append((c.proc.pid, c.label))
+                except Exception:  # noqa: BLE001
+                    pass
+        return roots
+
     # -- Arret / fermeture ---------------------------------------------------
     def _restart_panel(self, panel):
         """Relance la commande dans le même onglet (nouveau process)."""
@@ -284,7 +399,12 @@ class TasksTab(ttk.Frame):
         if old.is_running():
             old.kill()
         old.cleanup()
-        console = self._make_console(old.label, old.spec)
+        log_path = logs.new_log_path(old.label) if self.settings.save_logs else None
+        if getattr(old, "pty", False):
+            console = PtyConsole(old.label, old.spec, log_path=log_path)
+        else:
+            console = TaskConsole(old.label, old.spec, log_path=log_path,
+                                  interactive=old.interactive)
         panel.attach_console(console)
         self.consoles.set_tab_status(panel, crashed=False)
         console.start()
@@ -385,16 +505,32 @@ class TasksTab(ttk.Frame):
 
     # -- Boucle de drainage des sorties --------------------------------------
     def _poll(self):
+        backlog = False
         for panel in list(self.panels):
-            for kind, payload in self._drain(panel.console.queue):
+            chunk, more = self._drain(panel.console.queue, MAX_CHARS_PER_TICK)
+            backlog = backlog or more
+            # On regroupe les sorties contigues en UN seul append : insérer le
+            # texte d'un bloc est bien moins couteux que des dizaines d'appels
+            # (chacun forçant un recalcul de géométrie du widget).
+            out = []
+            for kind, payload in chunk:
                 if kind == EVENT_OUTPUT:
-                    panel.append(payload)
-                elif kind == EVENT_EXIT:
+                    out.append(payload)
+                    continue
+                if out:
+                    panel.append("".join(out))
+                    out = []
+                if kind == EVENT_EXIT:
                     panel.set_exited(payload)
                     panel.console.cleanup()
                     self.consoles.set_tab_status(panel, crashed=payload != 0)
+            if out:
+                panel.append("".join(out))
         self._refresh_kill_all()
-        self.after(POLL_MS, self._poll)
+        # S'il reste de la sortie en file (task tres bavarde), on revient vite
+        # au lieu d'inserer tout d'un bloc : la boucle d'evenements respire,
+        # l'UI repond (on peut notamment fermer l'onglet, ce qui tue le process).
+        self.after(FAST_POLL_MS if backlog else POLL_MS, self._poll)
 
     def _refresh_kill_all(self):
         has_running = any(p.console.is_running() for p in self.panels)
@@ -404,11 +540,20 @@ class TasksTab(ttk.Frame):
         self._refresh_task_status()
 
     @staticmethod
-    def _drain(q):
-        items = []
+    def _drain(q, max_chars):
+        """Retire jusqu'a ``max_chars`` caracteres de sortie de la file.
+
+        Retourne ``(items, backlog)`` ou ``backlog`` indique qu'il reste des
+        elements non draines (plafond atteint). Les evenements hors sortie
+        (ex. fin de process) ne comptent pas dans le plafond et passent toujours.
+        """
+        items, chars = [], 0
         try:
-            while True:
-                items.append(q.get_nowait())
+            while chars < max_chars:
+                kind, payload = q.get_nowait()
+                items.append((kind, payload))
+                if kind == EVENT_OUTPUT:
+                    chars += len(payload)
         except queue.Empty:
-            pass
-        return items
+            return items, False
+        return items, True
