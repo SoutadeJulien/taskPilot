@@ -74,6 +74,53 @@ class Config:
         self._data["confirm_bulk"] = bool(value)
         self._save()
 
+    # -- Favoris (par projet) ------------------------------------------------
+    def _favorites_map(self):
+        fav = self._data.get("favorites", {})
+        return fav if isinstance(fav, dict) else {}
+
+    def get_favorites(self, project):
+        """Liste des labels de tasks marquées favorites pour ``project``."""
+        labels = self._favorites_map().get(project, [])
+        return labels if isinstance(labels, list) else []
+
+    def toggle_favorite(self, project, label):
+        """Ajoute/retire ``label`` des favoris de ``project``. Retourne l'état."""
+        fav = dict(self._favorites_map())
+        labels = [x for x in fav.get(project, []) if isinstance(x, str)]
+        if label in labels:
+            labels.remove(label)
+            is_fav = False
+        else:
+            labels.append(label)
+            is_fav = True
+        if labels:
+            fav[project] = labels
+        else:
+            fav.pop(project, None)
+        self._data["favorites"] = fav
+        self._save()
+        return is_fav
+
+    # -- Etat replié des sections de la liste des tasks ----------------------
+    @property
+    def fav_collapsed(self):
+        return bool(self._data.get("fav_collapsed", False))
+
+    @fav_collapsed.setter
+    def fav_collapsed(self, value):
+        self._data["fav_collapsed"] = bool(value)
+        self._save()
+
+    @property
+    def all_collapsed(self):
+        return bool(self._data.get("all_collapsed", False))
+
+    @all_collapsed.setter
+    def all_collapsed(self, value):
+        self._data["all_collapsed"] = bool(value)
+        self._save()
+
     @property
     def save_logs(self):
         """Enregistrer la sortie des consoles dans le dossier temporaire."""

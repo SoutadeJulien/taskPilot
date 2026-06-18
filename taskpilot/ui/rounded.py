@@ -28,20 +28,23 @@ class _RoundedTab(tk.Canvas):
 
     def __init__(self, parent, text, command, *, radius, font,
                  bg_idle, bg_sel, fg_idle, fg_sel, pad_x=14, pad_y=7,
-                 top_only=False, accent=None, bg_hover=None):
+                 top_only=False, accent=None, bg_hover=None, group_color=None):
         self._font = theme.get_font(font)
+        self._pad_x = pad_x
+        self._pad_y = pad_y
+        self._text = text
         self._tw = self._font.measure(text) + 2 * pad_x
         self._th = self._font.metrics("linespace") + 2 * pad_y
         super().__init__(parent, width=self._tw, height=self._th,
                          bg=widget_bg(parent), highlightthickness=0, bd=0,
                          cursor="hand2", takefocus=0)
-        self._text = text
         self._radius = radius
         self._bg_idle, self._bg_sel = bg_idle, bg_sel
         self._bg_hover = bg_hover or bg_sel
         self._fg_idle, self._fg_sel = fg_idle, fg_sel
         self._shape = _round_top_points if top_only else _round_rect_points
         self._accent = accent
+        self._group_color = group_color
         self._selected = False
         self._hovered = False
         self._draw()
@@ -79,11 +82,25 @@ class _RoundedTab(tk.Canvas):
             self.create_rectangle(
                 2 + self._radius, 2, self._tw - 2 - self._radius, 5,
                 fill=self._accent, outline=self._accent)
+        # Barre verticale a gauche, toujours visible : identifie le groupe
+        # (tasks composites lancees ensemble). Posee sous le bord droit du
+        # coin arrondi pour ne pas deborder.
+        if self._group_color:
+            self.create_rectangle(
+                2, 2 + self._radius, 6, y2 - 2,
+                fill=self._group_color, outline=self._group_color)
         draw_centered_label(self, self._text, self._font,
                             self._tw / 2, self._th / 2, fg)
 
     def set_selected(self, selected: bool):
         self._selected = bool(selected)
+        self._draw()
+
+    def set_text(self, text):
+        """Change le libelle de l'onglet et reajuste sa largeur."""
+        self._text = text
+        self._tw = self._font.measure(text) + 2 * self._pad_x
+        self.configure(width=self._tw)
         self._draw()
 
 
@@ -120,24 +137,46 @@ class RoundedNotebook(tk.Frame):
         self._tabbar.bind("<Configure>", self._on_tabbar_configure)
         self._tabcanvas.bind("<MouseWheel>", self._on_tab_wheel)
         self._tabbar.bind("<MouseWheel>", self._on_tab_wheel)
-        self._pages = []          # liste de dict(child, tab)
+        self._pages = []          # liste de dict(child, tab, group, base_text)
         self._current = None
         self._on_change = None
+        self._drag = None         # etat du glisser-deposer d'onglet en cours
 
     # -- API ----------------------------------------------------------------
-    def add(self, child, text="", tooltip=None):
+    def add(self, child, text="", tooltip=None, group=None, group_color=None):
         tab = _RoundedTab(self._tabbar, text, lambda c=child: self.select(c),
-                          **self._tab_opts)
-        tab.pack(side="left", padx=(0, self._gap))
+                          group_color=group_color, **self._tab_opts)
         tab.bind("<MouseWheel>", self._on_tab_wheel)
+        tab.bind("<ButtonPress-1>", lambda e, c=child: self._drag_start(c, e),
+                 add="+")
+        tab.bind("<B1-Motion>", self._drag_motion)
+        tab.bind("<ButtonRelease-1>", self._drag_end)
         if tooltip:
             add_tooltip(tab, tooltip)
         child.grid(row=1, column=0, sticky="nsew")
-        self._pages.append({"child": child, "tab": tab})
+        page = {"child": child, "tab": tab, "group": group, "base_text": text}
+        # Inserer a cote des onglets du meme groupe (cote a cote), sinon a la fin.
+        insert_at = len(self._pages)
+        if group is not None:
+            last = [i for i, p in enumerate(self._pages)
+                    if p.get("group") == group]
+            if last:
+                insert_at = last[-1] + 1
+        self._pages.insert(insert_at, page)
+        self._repack_tabs()
         if self._current is None:
             self.select(child)
         else:
             self._raise_current()
+
+    def set_tab_status(self, child, *, crashed):
+        """Affiche (ou retire) une tete de mort sur l'onglet d'une console."""
+        page = next((p for p in self._pages if p["child"] is child), None)
+        if page is None:
+            return
+        base = page["base_text"]
+        page["tab"].set_text(f"\N{SKULL AND CROSSBONES} {base}" if crashed
+                             else base)
 
     def select(self, child):
         self._current = child
@@ -176,6 +215,44 @@ class RoundedNotebook(tk.Frame):
 
     def on_change(self, callback):
         self._on_change = callback
+
+    # -- Glisser-deposer des onglets ----------------------------------------
+    def _repack_tabs(self):
+        """Re-pose tous les onglets dans l'ordre courant de ``self._pages``."""
+        for page in self._pages:
+            page["tab"].pack_forget()
+        for page in self._pages:
+            page["tab"].pack(side="left", padx=(0, self._gap))
+
+    def _drag_start(self, child, _event):
+        self._drag = {"child": child}
+
+    def _drag_motion(self, event):
+        if not self._drag:
+            return
+        cur = next((i for i, p in enumerate(self._pages)
+                    if p["child"] is self._drag["child"]), None)
+        if cur is None:
+            return
+        px = event.x_root
+        # Position cible = nombre d'onglets (hors celui glisse) dont le centre
+        # est a gauche du pointeur. Les onglets etant ordonnes, c'est l'index
+        # d'insertion voulu dans la liste.
+        target = 0
+        for i, p in enumerate(self._pages):
+            if i == cur:
+                continue
+            tab = p["tab"]
+            center = tab.winfo_rootx() + tab.winfo_width() / 2
+            if px > center:
+                target += 1
+        if target != cur:
+            page = self._pages.pop(cur)
+            self._pages.insert(target, page)
+            self._repack_tabs()
+
+    def _drag_end(self, _event):
+        self._drag = None
 
     # -- Interne ------------------------------------------------------------
     def _raise_current(self):

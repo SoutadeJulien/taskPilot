@@ -60,6 +60,10 @@ TASKLIST_SEP = "#2a2a2a"         # filets (header, lignes)
 TASKLIST_BORDER = "#3c3c3c"      # liseré du cadre (gris neutre, non bleute)
 TYPE_FG = "#6f9c74"              # colonne Type (vert adouci)
 
+# Couleurs de groupe : consoles issues d'une meme task composite (dependsOn).
+# Cyclees dans l'ordre ; servent de barre verticale sur les onglets concernes.
+GROUP_COLORS = ("#6fa8d6", "#d6b36a", "#c98fd0", "#7bc0c0", "#d07a7a", "#9ec46a")
+
 # Bouton « Lancer la task » soude sous la liste (vert profond du design).
 RUN_BG = "#2e5a3a"
 RUN_HOVER = "#356a44"

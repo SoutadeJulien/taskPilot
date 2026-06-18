@@ -5,6 +5,10 @@ Un ``ttk.Treeview`` ne sait pas colorer une colonne differemment du reste de la
 ligne ni se souder sans marge a un bouton aux coins arrondis ; on reconstruit
 donc la liste a partir de simples ``Frame``/``Label``, ce qui donne un controle
 total sur la couleur de la colonne Type et sur la soudure visuelle.
+
+Les tasks sont regroupees en deux sections repliables : « Favoris » (celles que
+l'utilisateur a etoilees) et « Toutes les tasks ». Une meme task peut figurer
+dans les deux ; toutes ses lignes partagent l'etat de selection et la pastille.
 """
 
 import tkinter as tk
@@ -20,17 +24,27 @@ PULSE_MS = 650
 #: Largeurs fixes (px) des colonnes pastille et Type.
 DOT_COL_W = 26
 TYPE_COL_W = 78
+#: Couleur d'une etoile active (favori) / inactive.
+STAR_ON = "#d6b36a"
+STAR_OFF = "#5a5a5a"
 
 
 class TaskTable(tk.Frame):
     """Liste de tasks (pastille d'etat, nom, type) + bouton « Lancer » soude."""
 
-    def __init__(self, parent, *, on_run, on_select=None):
+    def __init__(self, parent, *, on_run, on_select=None,
+                 on_toggle_favorite=None, on_section_toggle=None,
+                 fav_collapsed=False, all_collapsed=False):
         super().__init__(parent, bg=theme.BG)
         self._on_run = on_run
         self._on_select = on_select
-        self._rows = {}            # label -> dict(widgets, dot, type_label)
-        self._order = []           # labels dans l'ordre d'affichage
+        self._on_toggle_favorite = on_toggle_favorite
+        self._on_section_toggle = on_section_toggle
+        self._items = []           # liste (label, type) dans l'ordre source
+        self._favorites = set()    # labels favoris
+        self._collapsed = {"fav": bool(fav_collapsed),
+                           "all": bool(all_collapsed)}
+        self._rows = {}            # label -> [dict(widgets, dot, star), ...]
         self._selected = None
         self._hovered = None
         self._running = set()
@@ -120,19 +134,66 @@ class TaskTable(tk.Frame):
             self._scroll.pack_forget()
 
     # -- Donnees -------------------------------------------------------------
-    def set_tasks(self, items):
-        """Reconstruit les lignes. ``items`` : liste de ``(label, type)``."""
+    def set_tasks(self, items, favorites=()):
+        """Reconstruit les lignes.
+
+        ``items`` : liste de ``(label, type)``. ``favorites`` : iterable des
+        labels marques favoris.
+        """
+        self._items = list(items)
+        self._favorites = {f for f in favorites}
+        self._rebuild_rows()
+
+    def _rebuild_rows(self):
         for child in self._rowframe.winfo_children():
             child.destroy()
         self._rows.clear()
-        self._order.clear()
-        for label, ttype in items:
-            self._add_row(label, ttype)
+
+        favs = [(lbl, t) for lbl, t in self._items if lbl in self._favorites]
+        self._add_section("fav", "★ Favoris", favs,
+                          empty_hint="Étoile une task pour l'ajouter ici.")
+        self._add_section("all", "Toutes les tasks", self._items)
+
         if self._selected not in self._rows:
             self._selected = None
         self._hovered = None
-        for label in self._order:
+        for label in self._rows:
             self._paint_row(label)
+
+    def _add_section(self, key, title, items, empty_hint=None):
+        collapsed = self._collapsed.get(key, False)
+        header = tk.Frame(self._rowframe, bg=theme.HEAD, cursor="hand2")
+        header.pack(fill="x")
+        caret = tk.Label(header, text="▸" if collapsed else "▾", bg=theme.HEAD,
+                         fg=theme.TASKLIST_HEAD_FG, font=theme.FONT_UI,
+                         width=2)
+        caret.pack(side="left", padx=(8, 0))
+        title_lbl = tk.Label(
+            header, text=f"{title}  ({len(items)})", bg=theme.HEAD,
+            fg=theme.TASKLIST_HEAD_FG, font=theme.FONT_UI_BOLD, anchor="w",
+            pady=5)
+        title_lbl.pack(side="left", fill="x", expand=True)
+        for w in (header, caret, title_lbl):
+            w.bind("<Button-1>", lambda _e, k=key: self._toggle_section(k))
+            self._bind_wheel(w)
+
+        if collapsed:
+            return
+        if not items and empty_hint:
+            hint = tk.Label(self._rowframe, text=empty_hint, bg=theme.TASKLIST_BG,
+                            fg=theme.CONSOLE_MUTED, font=theme.FONT_UI,
+                            anchor="w", padx=16, pady=6)
+            hint.pack(fill="x")
+            self._bind_wheel(hint)
+            return
+        for label, ttype in items:
+            self._add_row(label, ttype)
+
+    def _toggle_section(self, key):
+        self._collapsed[key] = not self._collapsed.get(key, False)
+        if self._on_section_toggle:
+            self._on_section_toggle(key, self._collapsed[key])
+        self._rebuild_rows()
 
     def _add_row(self, label, ttype):
         bg = theme.TASKLIST_BG
@@ -145,6 +206,11 @@ class TaskTable(tk.Frame):
         dot = tk.Label(holder, image=self._dot_idle, bg=bg)
         dot.pack(side="left", padx=(12, 0))
 
+        is_fav = label in self._favorites
+        star = tk.Label(row, text="★" if is_fav else "☆", bg=bg,
+                        fg=STAR_ON if is_fav else STAR_OFF,
+                        font=theme.FONT_UI, cursor="hand2", padx=8)
+        star.pack(side="right")
         type_lbl = tk.Label(row, text=ttype, bg=bg, fg=theme.TYPE_FG,
                             font=theme.FONT_UI, width=9, anchor="e", padx=8)
         type_lbl.pack(side="right")
@@ -152,16 +218,26 @@ class TaskTable(tk.Frame):
                             font=theme.FONT_UI, anchor="w", pady=4)
         name_lbl.pack(side="left", fill="x", expand=True)
 
-        widgets = (row, holder, dot, name_lbl, type_lbl)
-        for w in widgets:
+        widgets = (row, holder, dot, name_lbl, type_lbl, star)
+        for w in (row, holder, dot, name_lbl, type_lbl):
             w.bind("<Enter>", lambda _e, lbl=label: self._enter(lbl))
             w.bind("<Leave>", lambda _e, lbl=label: self._leave(lbl))
             w.bind("<Button-1>", lambda _e, lbl=label: self.select(lbl))
             w.bind("<Double-1>", lambda _e: self._on_run())
             self._bind_wheel(w)
-        self._rows[label] = {"widgets": widgets, "dot": dot,
-                             "type": type_lbl, "name": name_lbl}
-        self._order.append(label)
+        # L'etoile : clic = bascule favori, sans selectionner ni lancer.
+        star.bind("<Button-1>", lambda _e, lbl=label: self._toggle_favorite(lbl))
+        star.bind("<Enter>", lambda _e, lbl=label: self._enter(lbl))
+        star.bind("<Leave>", lambda _e, lbl=label: self._leave(lbl))
+        self._bind_wheel(star)
+
+        info = {"widgets": widgets, "dot": dot, "star": star, "fav": is_fav}
+        self._rows.setdefault(label, []).append(info)
+
+    def _toggle_favorite(self, label):
+        if self._on_toggle_favorite:
+            self._on_toggle_favorite(label)
+        return "break"
 
     # -- Etat des lignes -----------------------------------------------------
     def _row_bg(self, label):
@@ -172,16 +248,17 @@ class TaskTable(tk.Frame):
         return theme.TASKLIST_BG
 
     def _paint_row(self, label):
-        info = self._rows.get(label)
-        if not info:
+        infos = self._rows.get(label)
+        if not infos:
             return
         bg = self._row_bg(label)
-        for w in info["widgets"]:
-            try:
-                w.config(bg=bg)
-            except tk.TclError:
-                pass
-        info["dot"].config(image=self._dot_for(label))
+        for info in infos:
+            for w in info["widgets"]:
+                try:
+                    w.config(bg=bg)
+                except tk.TclError:
+                    pass
+            info["dot"].config(image=self._dot_for(label))
 
     def _enter(self, label):
         self._hovered = label
@@ -216,8 +293,10 @@ class TaskTable(tk.Frame):
         self._repaint_dots()
 
     def _repaint_dots(self):
-        for label, info in self._rows.items():
-            info["dot"].config(image=self._dot_for(label))
+        for label, infos in self._rows.items():
+            img = self._dot_for(label)
+            for info in infos:
+                info["dot"].config(image=img)
 
     def _pulse(self):
         if self._running:

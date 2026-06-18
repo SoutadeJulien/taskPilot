@@ -33,6 +33,7 @@ class TasksTab(ttk.Frame):
         self.tasks = []
         self.tasks_by_label = {}
         self.panels = []
+        self._group_colors = {}    # id de groupe -> couleur (cyclee)
 
         self.project = tk.StringVar(value=self.settings.project)
 
@@ -53,13 +54,17 @@ class TasksTab(ttk.Frame):
             top, bg=theme.BG_ALT, border=theme.CONSOLE_BORDER,
             radius=theme.BTN_RADIUS, inset=4)
         combo_card.pack(side="left", fill="x", expand=True, padx=8)
+        # Lecture seule : pas de saisie clavier. Un clic n'importe où sur le
+        # champ déplie la liste (voir _open_project_dropdown) ; le choix du
+        # projet passe sinon par « Choisir… ».
         self.project_combo = ttk.Combobox(
             combo_card.inner, textvariable=self.project, font=theme.FONT_UI,
-            values=self.settings.recent_projects, style="Flat.TCombobox")
+            values=self.settings.recent_projects, style="Flat.TCombobox",
+            state="readonly")
         self.project_combo.pack(fill="x", expand=True)
         self.project_combo.bind(
             "<<ComboboxSelected>>", lambda e: self.reload_tasks())
-        self.project_combo.bind("<Return>", lambda e: self.reload_tasks())
+        self.project_combo.bind("<Button-1>", self._open_project_dropdown)
         make_button(top, "⌂ Choisir…", self.choose_project).pack(
             side="left")
         make_button(top, "↻ Recharger", self.reload_tasks).pack(
@@ -76,9 +81,27 @@ class TasksTab(ttk.Frame):
         left = tk.Frame(parent, bg=theme.BG)
         # Liste custom (pastille + nom + type colore) soudee a son bouton
         # « Lancer la task » : voir TaskTable.
-        self.task_list = TaskTable(left, on_run=self.run_selected)
+        self.task_list = TaskTable(
+            left, on_run=self.run_selected,
+            on_toggle_favorite=self._toggle_favorite,
+            on_section_toggle=self._set_section_collapsed,
+            fav_collapsed=self.settings.fav_collapsed,
+            all_collapsed=self.settings.all_collapsed)
         self.task_list.pack(fill="both", expand=True)
         return left
+
+    def _toggle_favorite(self, label):
+        project = self.project.get().strip()
+        if not project:
+            return
+        self.settings.toggle_favorite(project, label)
+        self._render_tasks()
+
+    def _set_section_collapsed(self, key, collapsed):
+        if key == "fav":
+            self.settings.fav_collapsed = collapsed
+        elif key == "all":
+            self.settings.all_collapsed = collapsed
 
     def _build_consoles(self, parent):
         right = tk.Frame(parent, bg=theme.BG)
@@ -133,6 +156,12 @@ class TasksTab(ttk.Frame):
         self._empty.place(relx=0.5, rely=0.55, anchor="center")
         return right
 
+    def _open_project_dropdown(self, _event=None):
+        """Déplie la liste déroulante du projet, quel que soit l'endroit cliqué."""
+        if self.project_combo["values"]:
+            self.project_combo.event_generate("<Down>")
+        return "break"
+
     # -- Selection / chargement du projet ------------------------------------
     def choose_project(self):
         initial = self.project.get() or os.path.expanduser("~")
@@ -173,7 +202,8 @@ class TasksTab(ttk.Frame):
         for t in self.tasks:
             ttype = "groupe" if is_group_task(t) else t.get("type", "process")
             items.append((task_label(t), ttype))
-        self.task_list.set_tasks(items)
+        favorites = self.settings.get_favorites(self.project.get().strip())
+        self.task_list.set_tasks(items, favorites)
 
     def _refresh_task_status(self):
         """Reactualise les pastilles selon les tasks dont un process tourne."""
@@ -197,24 +227,37 @@ class TasksTab(ttk.Frame):
                 "Rien à lancer",
                 f"La task « {label} » n'a pas de commande exécutable.")
             return
+        # Une task composite (plusieurs commandes) forme un groupe : ses
+        # consoles partagent une couleur et restent cote a cote.
+        group = label if len(leaves) > 1 else None
+        color = self._group_color(group) if group else None
         if sequential and len(leaves) > 1:
-            self._launch_sequential(leaves)
+            self._launch_sequential(leaves, group, color)
         else:
             for leaf in leaves:
-                self._launch_leaf(leaf)
+                self._launch_leaf(leaf, group, color)
+
+    def _group_color(self, group):
+        """Couleur stable pour un groupe (cyclee dans la palette)."""
+        if group not in self._group_colors:
+            palette = theme.GROUP_COLORS
+            self._group_colors[group] = palette[
+                len(self._group_colors) % len(palette)]
+        return self._group_colors[group]
 
     def _make_console(self, label, spec):
         """Crée une console, avec journalisation fichier si l'option est active."""
         log_path = logs.new_log_path(label) if self.settings.save_logs else None
         return TaskConsole(label, spec, log_path=log_path)
 
-    def _launch_leaf(self, leaf):
+    def _launch_leaf(self, leaf, group=None, group_color=None):
         console = self._make_console(leaf.label, leaf.spec)
         panel = ConsolePanel(self.consoles, console, self._close_panel,
                              self._restart_panel)
         title = (leaf.label if len(leaf.label) <= MAX_TAB_TITLE
                  else leaf.label[:MAX_TAB_TITLE - 1] + "…")
-        self.consoles.add(panel, text=title, tooltip=leaf.label)
+        self.consoles.add(panel, text=title, tooltip=leaf.label,
+                          group=group, group_color=group_color)
         self.consoles.select(panel)
         self.panels.append(panel)
         self._empty.place_forget()
@@ -222,12 +265,12 @@ class TasksTab(ttk.Frame):
         self._refresh_kill_all()
         return panel
 
-    def _launch_sequential(self, leaves):
+    def _launch_sequential(self, leaves, group=None, group_color=None):
         """Enchaine les commandes (dependsOrder: sequence)."""
         def run_next(index):
             if index >= len(leaves):
                 return
-            panel = self._launch_leaf(leaves[index])
+            panel = self._launch_leaf(leaves[index], group, group_color)
 
             def watch():
                 console = panel.console
@@ -250,6 +293,7 @@ class TasksTab(ttk.Frame):
         old.cleanup()
         console = self._make_console(old.label, old.spec)
         panel.attach_console(console)
+        self.consoles.set_tab_status(panel, crashed=False)
         console.start()
 
     def _close_panel(self, panel):
@@ -355,6 +399,7 @@ class TasksTab(ttk.Frame):
                 elif kind == EVENT_EXIT:
                     panel.set_exited(payload)
                     panel.console.cleanup()
+                    self.consoles.set_tab_status(panel, crashed=payload != 0)
         self._refresh_kill_all()
         self.after(POLL_MS, self._poll)
 
