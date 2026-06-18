@@ -54,9 +54,9 @@ class TasksTab(ttk.Frame):
             top, bg=theme.BG_ALT, border=theme.CONSOLE_BORDER,
             radius=theme.BTN_RADIUS, inset=4)
         combo_card.pack(side="left", fill="x", expand=True, padx=8)
-        # Lecture seule : pas de saisie clavier. Un clic n'importe où sur le
-        # champ déplie la liste (voir _open_project_dropdown) ; le choix du
-        # projet passe sinon par « Choisir… ».
+        # Lecture seule : pas de saisie clavier. En mode ``readonly``, un clic
+        # n'importe où sur le champ déplie nativement la liste ; le choix d'un
+        # nouveau dossier passe sinon par « Choisir… ».
         self.project_combo = ttk.Combobox(
             combo_card.inner, textvariable=self.project, font=theme.FONT_UI,
             values=self.settings.recent_projects, style="Flat.TCombobox",
@@ -64,7 +64,6 @@ class TasksTab(ttk.Frame):
         self.project_combo.pack(fill="x", expand=True)
         self.project_combo.bind(
             "<<ComboboxSelected>>", lambda e: self.reload_tasks())
-        self.project_combo.bind("<Button-1>", self._open_project_dropdown)
         make_button(top, "⌂ Choisir…", self.choose_project).pack(
             side="left")
         make_button(top, "↻ Recharger", self.reload_tasks).pack(
@@ -155,12 +154,6 @@ class TasksTab(ttk.Frame):
             justify="center")
         self._empty.place(relx=0.5, rely=0.55, anchor="center")
         return right
-
-    def _open_project_dropdown(self, _event=None):
-        """Déplie la liste déroulante du projet, quel que soit l'endroit cliqué."""
-        if self.project_combo["values"]:
-            self.project_combo.event_generate("<Down>")
-        return "break"
 
     # -- Selection / chargement du projet ------------------------------------
     def choose_project(self):
