@@ -1,0 +1,1 @@
+"""Couche de presentation (Tkinter)."""
