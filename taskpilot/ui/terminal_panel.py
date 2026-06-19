@@ -195,6 +195,9 @@ class TerminalPanel(ConsolePanel):
         if not screen.cursor.hidden and self.console.is_running():
             cy, cx = screen.cursor.y, screen.cursor.x
             self.text.tag_add("cursor", f"{cy + 1}.{cx}", f"{cy + 1}.{cx + 1}")
+            # Les tags de style sont créés après le tag "cursor" et ont donc une
+            # priorité supérieure : sans cela leur fond masquerait le curseur.
+            self.text.tag_raise("cursor")
         self.text.config(state="disabled")
         self.text.yview_moveto(view[0])
 
