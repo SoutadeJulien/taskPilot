@@ -1,5 +1,6 @@
 """Fenetre principale : Notebook regroupant les onglets Tasks et Process."""
 
+import sys
 import tkinter as tk
 
 from taskpilot.config import Config
@@ -18,15 +19,20 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TaskPilot")
-        self.geometry("960x560")
-        self.minsize(640, 360)
+        # Facteur de mise a l'echelle DPI (1.0 a 100 %, 1.25 a 125 %, ...).
+        # Les polices (en points) suivent deja le DPI ; on applique le meme
+        # facteur a la geometrie et aux icones (en pixels) pour conserver les
+        # proportions au lieu d'une fenetre et d'icones rapetissees.
+        self.scaling = self.winfo_fpixels("1i") / 96.0
+        self.geometry(f"{self._sc(960)}x{self._sc(560)}")
+        self.minsize(self._sc(640), self._sc(360))
         self.configure(bg=theme.BG)
 
         self.settings = Config()
         # Logs : on repart d'un dossier propre a chaque demarrage.
         logs.clean_log_dir()
-        self.node_icon = build_node_icon(self, 16)
-        self.logo = build_logo(self, 64)
+        self.node_icon = build_node_icon(self, self._sc(16))
+        self.logo = build_logo(self, self._sc(64))
         self.iconphoto(True, self.logo)
         theme.apply_theme(self)
 
@@ -50,6 +56,10 @@ class App(tk.Tk):
 
         self._bind_accelerators()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _sc(self, px: int) -> int:
+        """Met a l'echelle une dimension en pixels selon le facteur DPI."""
+        return round(px * self.scaling)
 
     # -- Barre de menus ------------------------------------------------------
     def _build_menubar(self):
@@ -177,7 +187,40 @@ class App(tk.Tk):
         self.destroy()
 
 
+def _enable_dpi_awareness():
+    """Declare le process « DPI-aware » sous Windows.
+
+    Sans cela, a une mise a l'echelle != 100 % (ex. 125 %), Windows etire la
+    fenetre rendue en 96 DPI par un agrandissement bitmap : tout parait flou.
+    Une fois le process DPI-aware, Tk recoit le vrai DPI de l'ecran et les
+    polices (definies en points) sont rendues nettes a la bonne taille.
+
+    Doit etre appele AVANT toute creation de fenetre Tk.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        # Per-Monitor Aware v2 : net meme en multi-ecrans a echelles differentes.
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        # shcore (Windows 8.1+) : 2 = PROCESS_PER_MONITOR_DPI_AWARE.
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        # Repli (Windows 7) : System DPI Aware.
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
 def main():
+    _enable_dpi_awareness()
     App().mainloop()
 
 

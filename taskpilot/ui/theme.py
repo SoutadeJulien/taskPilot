@@ -106,8 +106,12 @@ def apply_theme(root: tk.Misc):
     except tk.TclError:
         pass
 
+    # Facteur DPI (1.0 a 100 %) pour les dimensions en pixels du theme : sans
+    # cela, a 125 % la hauteur de ligne fixe tronquerait le texte agrandi.
+    scaling = getattr(root, "scaling", 1.0)
+
     style.configure("Treeview", background=BG, fieldbackground=BG,
-                    foreground=FG, rowheight=24, borderwidth=0)
+                    foreground=FG, rowheight=round(24 * scaling), borderwidth=0)
     style.configure("Treeview.Heading", background=HEAD, foreground=FG,
                     relief="flat", font=FONT_UI_BOLD)
     style.map("Treeview.Heading", background=[("active", "#3e3e42")])
