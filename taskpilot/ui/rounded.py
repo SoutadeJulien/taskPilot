@@ -163,6 +163,13 @@ class _RoundedTab(tk.Canvas):
         self._selected = bool(selected)
         self._draw()
 
+    def set_group_color(self, color):
+        """Change la couleur de la barre verticale gauche (groupe / projet)."""
+        if color == self._group_color:
+            return
+        self._group_color = color
+        self._draw()
+
     def set_text(self, text):
         """Change le libelle de l'onglet et reajuste sa largeur."""
         self._text = text
@@ -247,6 +254,12 @@ class RoundedNotebook(tk.Frame):
         base = page["base_text"]
         page["tab"].set_text(f"\N{SKULL AND CROSSBONES} {base}" if crashed
                              else base)
+
+    def set_tab_bar_color(self, child, color):
+        """Recolore la barre verticale gauche de l'onglet d'une page."""
+        page = next((p for p in self._pages if p["child"] is child), None)
+        if page is not None:
+            page["tab"].set_group_color(color)
 
     def select(self, child):
         self._current = child
@@ -345,12 +358,16 @@ class RoundedNotebook(tk.Frame):
         return "break"
 
     def _select_relative(self, step):
-        """Selectionne la console decalee de ``step`` (cyclique)."""
+        """Selectionne la console decalee de ``step``, bornee aux extremites.
+
+        La molette s'arrete sur la premiere / derniere console au lieu de
+        repartir de l'autre cote (pas de defilement cyclique).
+        """
         if not self._pages:
             return
         idx = next((i for i, p in enumerate(self._pages)
                     if p["child"] is self._current), 0)
-        idx = (idx + step) % len(self._pages)
+        idx = max(0, min(len(self._pages) - 1, idx + step))
         self.select(self._pages[idx]["child"])
 
     def _scroll_into_view(self, tab):

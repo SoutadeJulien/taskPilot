@@ -102,6 +102,33 @@ class Config:
         self._save()
         return is_fav
 
+    # -- Couleur par projet (reperage des consoles) --------------------------
+    def _project_colors_map(self):
+        colors = self._data.get("project_colors", {})
+        return colors if isinstance(colors, dict) else {}
+
+    def get_project_color(self, project):
+        """Couleur (hex) choisie pour reperer les consoles de ``project``.
+
+        Chaine vide si aucune couleur n'a ete definie. Sert a distinguer d'un
+        coup d'oeil les consoles de deux worktrees (memes labels de tasks).
+        """
+        color = self._project_colors_map().get(project)
+        return color if isinstance(color, str) else ""
+
+    def set_project_color(self, project, color):
+        """Definit la couleur d'un projet (chaine vide / None => la retire)."""
+        project = (project or "").strip()
+        if not project:
+            return
+        colors = dict(self._project_colors_map())
+        if color:
+            colors[project] = color
+        else:
+            colors.pop(project, None)
+        self._data["project_colors"] = colors
+        self._save()
+
     # -- Etat replié des sections de la liste des tasks ----------------------
     @property
     def fav_collapsed(self):

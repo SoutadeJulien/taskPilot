@@ -93,6 +93,19 @@ class TasksTab(ttk.Frame):
         self.project_combo.pack(fill="x", expand=True)
         self.project_combo.bind(
             "<<ComboboxSelected>>", lambda e: self.reload_tasks())
+        # Pastille de couleur du projet : un clic ouvre le choix de couleur.
+        # Elle identifie les consoles du projet (distinguer deux worktrees).
+        self._color_swatch = tk.Frame(
+            top, width=24, height=24, cursor="hand2", highlightthickness=1,
+            highlightbackground=theme.CONSOLE_BORDER)
+        self._color_swatch.pack_propagate(False)
+        self._color_swatch.pack(side="left", padx=(0, 8))
+        self._color_swatch.bind("<Button-1>", lambda _e: self._open_color_menu())
+        add_tooltip(self._color_swatch,
+                    "Couleur du projet : repère ses consoles\n"
+                    "(utile pour distinguer deux worktrees)")
+        self._color_menu = PopupMenu(self)
+        self._update_color_swatch()
         make_button(top, "⌂ Choisir…", self.choose_project).pack(
             side="left")
         make_button(top, "↻ Recharger", self.reload_tasks).pack(
@@ -130,6 +143,54 @@ class TasksTab(ttk.Frame):
             self.settings.fav_collapsed = collapsed
         elif key == "all":
             self.settings.all_collapsed = collapsed
+
+    # -- Couleur du projet (reperage des consoles) ---------------------------
+    def _project_color(self):
+        """Couleur choisie pour le projet courant (chaine vide si aucune)."""
+        project = self.project.get().strip()
+        return self.settings.get_project_color(project) if project else ""
+
+    def _update_color_swatch(self):
+        color = self._project_color()
+        self._color_swatch.config(bg=color or theme.BTN)
+
+    def _open_color_menu(self):
+        # Bascule (referme si deja ouvert), comme le menu « + Console ».
+        if self._color_menu.is_open():
+            self._color_menu.hide()
+            return
+        project = self.project.get().strip()
+        if not project:
+            messagebox.showinfo("Info", "Choisis d'abord un projet.")
+            return
+        current = self.settings.get_project_color(project)
+        self._color_menu.clear()
+        self._color_menu.add_color(
+            "", lambda: self._set_project_color(""),
+            label="Aucune couleur", selected=not current)
+        for c in theme.PROJECT_PALETTE:
+            self._color_menu.add_color(
+                c, lambda col=c: self._set_project_color(col),
+                label=c, selected=(c == current))
+        w = self._color_swatch
+        self._color_menu.show(w.winfo_rootx(),
+                              w.winfo_rooty() + w.winfo_height(), anchor=w)
+
+    def _set_project_color(self, color):
+        """Persiste la couleur et la repercute sur les consoles deja ouvertes."""
+        project = self.project.get().strip()
+        if not project:
+            return
+        self.settings.set_project_color(project, color)
+        self._update_color_swatch()
+        new = color or None
+        for panel in self.panels:
+            if getattr(panel, "project", None) != project:
+                continue
+            panel.set_project_color(new)
+            # La barre d'onglet privilegie la couleur du projet (repli groupe).
+            bar = new or getattr(panel, "group_color", None)
+            self.consoles.set_tab_bar_color(panel, bar)
 
     def _build_consoles(self, parent):
         right = tk.Frame(parent, bg=theme.BG)
@@ -229,6 +290,11 @@ class TasksTab(ttk.Frame):
         self.settings.project = project
         self.project_combo["values"] = self.settings.recent_projects
         self._render_tasks()
+        self._update_color_swatch()
+        # Recalcule tout de suite les pastilles « en cours » avec le filtre par
+        # projet : sinon une task d'un worktree precedent (meme label) resterait
+        # marquee active jusqu'au prochain tour de boucle.
+        self._refresh_task_status()
 
     def _render_tasks(self):
         items = []
@@ -239,9 +305,16 @@ class TasksTab(ttk.Frame):
         self.task_list.set_tasks(items, favorites)
 
     def _refresh_task_status(self):
-        """Reactualise les pastilles selon les tasks dont un process tourne."""
+        """Reactualise les pastilles des tasks dont un process tourne.
+
+        On ne compte que les consoles lancees depuis le projet AFFICHE : deux
+        worktrees exposent les memes labels, donc filtrer par projet evite
+        qu'une task active dans l'un n'apparaisse active dans l'autre.
+        """
+        project = self.project.get().strip()
         running = {p.console.label for p in self.panels
-                   if p.console.is_running()}
+                   if p.console.is_running()
+                   and getattr(p, "project", None) == project}
         self.task_list.set_running(running)
 
     # -- Lancement -----------------------------------------------------------
@@ -253,22 +326,27 @@ class TasksTab(ttk.Frame):
         self.launch_task(sel[0])
 
     def launch_task(self, label):
+        project = self.project.get().strip()
         leaves, sequential = flatten_tasks(
-            label, self.tasks_by_label, self.project.get().strip())
+            label, self.tasks_by_label, project)
         if not leaves:
             messagebox.showwarning(
                 "Rien à lancer",
                 f"La task « {label} » n'a pas de commande exécutable.")
             return
+        # Le projet et sa couleur sont fixes au lancement (les lancements
+        # sequentiels et leur surveillance s'etalant dans le temps, l'utilisateur
+        # peut entre-temps changer le projet affiche).
+        project_color = self.settings.get_project_color(project) or None
         # Une task composite (plusieurs commandes) forme un groupe : ses
         # consoles partagent une couleur et restent cote a cote.
         group = label if len(leaves) > 1 else None
         color = self._group_color(group) if group else None
         if sequential and len(leaves) > 1:
-            self._launch_sequential(leaves, group, color)
+            self._launch_sequential(leaves, project, group, color, project_color)
         else:
             for leaf in leaves:
-                self._launch_leaf(leaf, group, color)
+                self._launch_leaf(leaf, project, group, color, project_color)
 
     def _group_color(self, group):
         """Couleur stable pour un groupe (cyclee dans la palette)."""
@@ -283,14 +361,18 @@ class TasksTab(ttk.Frame):
         log_path = logs.new_log_path(label) if self.settings.save_logs else None
         return TaskConsole(label, spec, log_path=log_path)
 
-    def _launch_leaf(self, leaf, group=None, group_color=None):
+    def _launch_leaf(self, leaf, project, group=None, group_color=None,
+                     project_color=None):
         console = self._make_console(leaf.label, leaf.spec)
         panel = ConsolePanel(self.consoles, console, self._close_panel,
                              self._restart_panel)
+        self._tag_panel(panel, project, group_color, project_color)
         title = (leaf.label if len(leaf.label) <= MAX_TAB_TITLE
                  else leaf.label[:MAX_TAB_TITLE - 1] + "…")
+        # Barre d'onglet : couleur du projet en priorite (repere du worktree) ;
+        # la couleur de groupe ne sert que de repli quand le projet n'en a pas.
         self.consoles.add(panel, text=title, tooltip=leaf.label,
-                          group=group, group_color=group_color,
+                          group=group, group_color=project_color or group_color,
                           on_close=lambda p=panel: self._close_panel(p))
         self.consoles.select(panel)
         self.panels.append(panel)
@@ -299,12 +381,20 @@ class TasksTab(ttk.Frame):
         self._refresh_kill_all()
         return panel
 
-    def _launch_sequential(self, leaves, group=None, group_color=None):
+    def _tag_panel(self, panel, project, group_color, project_color):
+        """Rattache un panneau a son projet et applique son repere couleur."""
+        panel.project = project
+        panel.group_color = group_color
+        panel.set_project_color(project_color)
+
+    def _launch_sequential(self, leaves, project, group=None, group_color=None,
+                           project_color=None):
         """Enchaine les commandes (dependsOrder: sequence)."""
         def run_next(index):
             if index >= len(leaves):
                 return
-            panel = self._launch_leaf(leaves[index], group, group_color)
+            panel = self._launch_leaf(leaves[index], project, group, group_color,
+                                      project_color)
 
             def watch():
                 console = panel.console
@@ -334,7 +424,9 @@ class TasksTab(ttk.Frame):
         Privilégie un vrai terminal (ConPTY + ``pyte``) ; à défaut (pywinpty
         absent), retombe sur une console ligne-à-ligne via tube.
         """
-        cwd = self.project.get().strip() or os.path.expanduser("~")
+        project = self.project.get().strip()
+        cwd = project or os.path.expanduser("~")
+        project_color = self.settings.get_project_color(project) or None
         log_path = logs.new_log_path(display) if self.settings.save_logs else None
         if _TERMINAL_OK:
             spec = CommandSpec(argv=list(argv), shell=False, cwd=cwd, env=None,
@@ -349,7 +441,10 @@ class TasksTab(ttk.Frame):
                                   interactive=True)
             panel = InteractiveConsolePanel(self.consoles, console,
                                             self._close_panel, self._restart_panel)
+        # Console vierge : pas de groupe, mais elle porte la couleur du projet.
+        self._tag_panel(panel, project, None, project_color)
         self.consoles.add(panel, text=display, tooltip=f"Console {display}",
+                          group_color=project_color,
                           on_close=lambda p=panel: self._close_panel(p))
         self.consoles.select(panel)
         self.panels.append(panel)

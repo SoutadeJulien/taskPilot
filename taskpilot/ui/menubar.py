@@ -34,6 +34,16 @@ class _MenuBuilder:
         self.items.append({"type": "check", "label": label,
                            "variable": variable, "command": command})
 
+    def add_color(self, color, command, *, label=None, selected=False):
+        """Ajoute une entree affichant un echantillon de couleur (selecteur).
+
+        ``color`` vide => pastille « aucune couleur ». ``selected`` coche
+        l'entree correspondant a la couleur courante.
+        """
+        self.items.append({"type": "color", "color": color, "command": command,
+                           "label": label if label is not None else color,
+                           "selected": selected})
+
     def add_submenu(self, label, populate=None):
         """Sous-menu. ``populate(builder)`` (optionnel) le remplit à l'ouverture
         (contenu dynamique, ex. projets récents)."""
@@ -143,6 +153,13 @@ class PopupMenu(tk.Frame):
     def add_separator(self):
         self._builder.add_separator()
 
+    def add_color(self, color, command, *, label=None, selected=False):
+        self._builder.add_color(color, command, label=label, selected=selected)
+
+    def clear(self):
+        """Vide les entrees (utile pour reconstruire le menu a chaque ouverture)."""
+        self._builder.items = []
+
     def is_open(self):
         return bool(self._popups)
 
@@ -218,16 +235,33 @@ class _Popup(tk.Toplevel):
                        cursor="arrow" if disabled else "hand2")
         row.pack(fill="x")
 
+        widgets = [row]
+        if spec["type"] == "color":
+            # Echantillon de couleur a gauche ; un damier neutre figure « aucune ».
+            swatch = tk.Frame(row, width=14, height=14,
+                              bg=spec["color"] or theme.BTN,
+                              highlightthickness=1,
+                              highlightbackground=theme.CONSOLE_BORDER)
+            swatch.pack_propagate(False)
+            swatch.pack(side="left", padx=(12, 0), pady=4)
+            swatch._is_swatch = True   # exclu du survol (garde sa couleur)
+            widgets.append(swatch)
+
         prefix = ""
         if spec["type"] == "check":
             prefix = "✓  " if spec["variable"].get() else "      "
+        pad_l = 8 if spec["type"] == "color" else 12
         left = tk.Label(row, text=prefix + spec["label"], bg=_POPUP_BG, fg=fg,
                         font=theme.get_font(theme.FONT_UI), anchor="w",
-                        padx=12, pady=4)
+                        padx=pad_l, pady=4)
         left.pack(side="left", fill="x", expand=True)
 
-        right_text = "▸" if spec["type"] == "submenu" else (spec.get("accel") or "")
-        widgets = [row, left]
+        if spec["type"] == "color":
+            right_text = "✓" if spec.get("selected") else ""
+        else:
+            right_text = ("▸" if spec["type"] == "submenu"
+                          else (spec.get("accel") or ""))
+        widgets.append(left)
         if right_text:
             right = tk.Label(row, text=right_text, bg=_POPUP_BG,
                              fg=theme.CONSOLE_MUTED,
@@ -236,15 +270,20 @@ class _Popup(tk.Toplevel):
             right.pack(side="right")
             widgets.append(right)
 
-        self._bind_row(widgets, spec, row, disabled)
+        self._bind_row(widgets, spec, row, disabled, label=left)
 
-    def _bind_row(self, widgets, spec, row, disabled):
+    def _bind_row(self, widgets, spec, row, disabled, label=None):
+        label = label or widgets[1]
+        # L'echantillon de couleur garde sa propre couleur de fond au survol
+        # (sinon le hover l'effacerait) : on ne recolore que les autres widgets.
+        tinted = [w for w in widgets if not getattr(w, "_is_swatch", False)]
+
         def on_enter(_e=None):
             self._close_child()
             if not disabled:
-                for w in widgets:
+                for w in tinted:
                     w.config(bg=_HOVER_BG)
-                widgets[1].config(fg="#ffffff")
+                label.config(fg="#ffffff")
             if spec["type"] == "submenu":
                 self._open_child(row, spec)
 
@@ -252,14 +291,14 @@ class _Popup(tk.Toplevel):
             x, y = row.winfo_pointerxy()
             if row.winfo_containing(x, y) in widgets:
                 return               # toujours sur la même entrée : pas de bascule
-            for w in widgets:
+            for w in tinted:
                 w.config(bg=_POPUP_BG)
-            widgets[1].config(fg=_DISABLED_FG if disabled else theme.FG)
+            label.config(fg=_DISABLED_FG if disabled else theme.FG)
 
         for w in widgets:
             w.bind("<Enter>", on_enter)
             w.bind("<Leave>", on_leave)
-            if spec["type"] in ("command", "check") and not disabled:
+            if spec["type"] in ("command", "check", "color") and not disabled:
                 w.bind("<Button-1>", lambda _e, s=spec: self._activate(s))
 
     # -- Actions -------------------------------------------------------------

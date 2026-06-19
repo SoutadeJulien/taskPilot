@@ -60,6 +60,14 @@ class ConsolePanel(tk.Frame):
                            inset=6)
         bar.pack(fill="x", pady=(0, 6))
         header = bar.inner
+        self._header = header
+        # Pastille de couleur du projet : repere visuel (worktree) pose a gauche
+        # du statut. Cachee tant qu'aucune couleur n'est definie pour le projet,
+        # donc invisible pour les consoles sans couleur (aucune regression).
+        self._proj_color = None
+        self._proj_dot = tk.Frame(header, bg=theme.CONSOLE_HEAD, width=10,
+                                  height=10)
+        self._proj_dot.pack_propagate(False)
         # Pastille d'etat + libelle, regroupes pour un rendu plus lisible.
         self.status = tk.Label(
             header, text="●  en cours", bg=theme.CONSOLE_HEAD, fg=theme.ACCENT,
@@ -189,6 +197,16 @@ class ConsolePanel(tk.Frame):
         self.text.config(state="disabled")
         if at_bottom:
             self.text.see("end")
+
+    def set_project_color(self, color):
+        """Affiche (ou masque) la pastille de couleur du projet dans l'en-tete."""
+        self._proj_color = color or None
+        if self._proj_color:
+            self._proj_dot.config(bg=self._proj_color)
+            if not self._proj_dot.winfo_ismapped():
+                self._proj_dot.pack(side="left", padx=(2, 4), before=self.status)
+        else:
+            self._proj_dot.pack_forget()
 
     def set_exited(self, code: int):
         if code == 0:
