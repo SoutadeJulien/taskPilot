@@ -62,7 +62,9 @@ class TasksTab(ttk.Frame):
         self.tasks = []
         self.tasks_by_label = {}
         self.panels = []
-        self._group_colors = {}    # id de groupe -> couleur (cyclee)
+        # id de groupe -> couleur (cyclee), restaurees depuis la config pour
+        # garder la meme couleur d'une session a l'autre.
+        self._group_colors = dict(self.settings.get_group_colors())
 
         self.project = tk.StringVar(value=self.settings.project)
 
@@ -352,8 +354,9 @@ class TasksTab(ttk.Frame):
         """Couleur stable pour un groupe (cyclee dans la palette)."""
         if group not in self._group_colors:
             palette = theme.GROUP_COLORS
-            self._group_colors[group] = palette[
-                len(self._group_colors) % len(palette)]
+            color = palette[len(self._group_colors) % len(palette)]
+            self._group_colors[group] = color
+            self.settings.set_group_color(group, color)
         return self._group_colors[group]
 
     def _make_console(self, label, spec):

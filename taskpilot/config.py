@@ -129,6 +129,35 @@ class Config:
         self._data["project_colors"] = colors
         self._save()
 
+    # -- Couleur par groupe (consoles d'une task composite) ------------------
+    def _group_colors_map(self):
+        colors = self._data.get("group_colors", {})
+        return colors if isinstance(colors, dict) else {}
+
+    def get_group_colors(self):
+        """Couleurs (hex) memorisees pour chaque groupe, par label.
+
+        Permet de retrouver la meme couleur d'une session a l'autre plutot que
+        de re-cycler la palette a chaque lancement.
+        """
+        return {
+            k: v for k, v in self._group_colors_map().items()
+            if isinstance(k, str) and isinstance(v, str)
+        }
+
+    def set_group_color(self, group, color):
+        """Memorise la couleur d'un groupe (chaine vide / None => la retire)."""
+        group = (group or "").strip()
+        if not group:
+            return
+        colors = dict(self._group_colors_map())
+        if color:
+            colors[group] = color
+        else:
+            colors.pop(group, None)
+        self._data["group_colors"] = colors
+        self._save()
+
     # -- Etat replié des sections de la liste des tasks ----------------------
     @property
     def fav_collapsed(self):
