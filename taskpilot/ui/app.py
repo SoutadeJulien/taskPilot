@@ -3,6 +3,7 @@
 import sys
 import tkinter as tk
 
+from taskpilot import __version__
 from taskpilot.config import Config
 from taskpilot.core import logs
 from taskpilot.ui import theme
@@ -169,7 +170,7 @@ class App(tk.Tk):
 
     def _show_about(self):
         self._info_dialog("À propos", [
-            ("TaskPilot", ""),
+            ("TaskPilot", f"version {__version__}"),
             ("Lanceur de tasks VS Code", ""),
             ("et gestionnaire de process.", ""),
         ])
