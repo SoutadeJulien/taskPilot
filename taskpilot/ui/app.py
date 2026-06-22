@@ -2,6 +2,7 @@
 
 import sys
 import tkinter as tk
+from tkinter import filedialog
 
 from taskpilot import __version__
 from taskpilot.config import Config
@@ -30,7 +31,8 @@ class App(tk.Tk):
         self.configure(bg=theme.BG)
 
         self.settings = Config()
-        # Logs : on repart d'un dossier propre a chaque demarrage.
+        # Logs : on applique le dossier configure puis on repart propre.
+        logs.set_log_dir(self.settings.log_dir)
         logs.clean_log_dir()
         self.node_icon = build_node_icon(self, self._sc(16))
         self.logo = build_logo(self, self._sc(64))
@@ -107,8 +109,13 @@ class App(tk.Tk):
         options.add_checkbutton("Enregistrer les logs",
                                 self._logs_var, command=self._save_logs_pref)
         options.add_separator()
+        options.add_command("Choisir le dossier des logs…", self._choose_log_dir)
         options.add_command(logs.LOG_DIR, None)   # rappel du chemin (désactivé)
+        # On retient l'entrée du chemin pour rafraîchir son libellé après un
+        # changement de dossier (les libellés sont lus à l'ouverture du menu).
+        self._log_path_item = options.items[-1]
         options.add_command("Ouvrir le dossier des logs", logs.open_log_dir)
+        options.add_command("Vider les logs", self._clean_logs)
 
         help_menu = bar.add_menu("Aide")
         help_menu.add_command("Raccourcis clavier", self._show_shortcuts)
@@ -127,6 +134,21 @@ class App(tk.Tk):
 
     def _save_logs_pref(self):
         self.settings.save_logs = self._logs_var.get()
+
+    def _choose_log_dir(self):
+        """Laisse l'utilisateur choisir le dossier où enregistrer les logs."""
+        path = filedialog.askdirectory(
+            title="Dossier des logs", initialdir=logs.LOG_DIR)
+        if not path:
+            return
+        self.settings.log_dir = path
+        logs.set_log_dir(path)
+        logs.ensure_log_dir()
+        self._log_path_item["label"] = logs.LOG_DIR
+
+    def _clean_logs(self):
+        """Vide le dossier des logs sur demande de l'utilisateur."""
+        logs.clean_log_dir()
 
     def _bind_accelerators(self):
         tasks = self.tasks_tab

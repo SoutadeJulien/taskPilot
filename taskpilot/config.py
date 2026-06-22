@@ -157,3 +157,14 @@ class Config:
     def save_logs(self, value):
         self._data["save_logs"] = bool(value)
         self._save()
+
+    @property
+    def log_dir(self):
+        """Dossier où enregistrer les logs (vide => dossier temporaire par défaut)."""
+        value = self._data.get("log_dir", "")
+        return value if isinstance(value, str) else ""
+
+    @log_dir.setter
+    def log_dir(self, value):
+        self._data["log_dir"] = (value or "").strip()
+        self._save()

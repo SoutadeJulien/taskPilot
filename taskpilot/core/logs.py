@@ -10,13 +10,24 @@ import re
 import shutil
 import tempfile
 
-#: Dossier des logs, sous le répertoire temporaire de l'OS.
-LOG_DIR = os.path.join(tempfile.gettempdir(), "taskpilot-logs")
+#: Dossier des logs par défaut, sous le répertoire temporaire de l'OS.
+DEFAULT_LOG_DIR = os.path.join(tempfile.gettempdir(), "taskpilot-logs")
+
+#: Dossier des logs courant (modifiable via ``set_log_dir``).
+LOG_DIR = DEFAULT_LOG_DIR
 
 #: Compteur global : garantit des noms de fichiers uniques et ordonnés.
 _counter = 0
 #: Caractères non sûrs dans un nom de fichier (remplacés par ``-``).
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def set_log_dir(path):
+    """Définit le dossier des logs. Vide / ``None`` => revient au défaut."""
+    global LOG_DIR
+    path = (path or "").strip()
+    LOG_DIR = path or DEFAULT_LOG_DIR
+    return LOG_DIR
 
 
 def clean_log_dir():
