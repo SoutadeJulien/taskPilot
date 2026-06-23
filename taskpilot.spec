@@ -13,14 +13,16 @@ block_cipher = None
 # DLL) et pyte ses modules : on collecte tout pour que le terminal fonctionne
 # dans l'exe autonome. ATTENTION : collect_all renvoie (datas, binaries,
 # hiddenimports) DANS CET ORDRE — toute inversion casse le bundling du PTY.
+# PySide6 (interface Qt) est embarque par le hook PyInstaller du module, tire
+# automatiquement par l'import dans main_qt.py.
 _pty_d, _pty_b, _pty_h = collect_all("winpty")
 _pyte_d, _pyte_b, _pyte_h = collect_all("pyte")
 
 a = Analysis(
-    ["main.py"],
+    ["main_qt.py"],
     pathex=[],
     binaries=_pty_b + _pyte_b,
-    datas=_pty_d + _pyte_d,
+    datas=_pty_d + _pyte_d + [("taskpilot/assets", "taskpilot/assets")],
     hiddenimports=_pty_h + _pyte_h,
     hookspath=[],
     runtime_hooks=[],

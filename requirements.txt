@@ -1,5 +1,7 @@
 # Dépendances runtime de TaskPilot (embarquées dans l'exe PyInstaller).
+# PySide6  : interface graphique Qt (l'exe livré).
 # pywinpty : pseudo-terminal Windows (ConPTY) pour les consoles interactives.
 # pyte     : émulateur de terminal VT100 (rendu de la sortie du PTY).
+PySide6>=6.6
 pywinpty>=2.0
 pyte>=0.8
