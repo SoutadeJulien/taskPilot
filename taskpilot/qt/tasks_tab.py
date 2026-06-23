@@ -19,10 +19,14 @@ from taskpilot.core import logs
 from taskpilot.core.pty_console import HAVE_PTY, PtyConsole
 from taskpilot.core.task_runner import EVENT_EXIT, EVENT_OUTPUT, TaskConsole
 from taskpilot.core.vscode_tasks import (
-    CommandSpec, flatten_tasks, is_group_task, load_vscode_tasks, task_label)
+    CommandSpec, build_task_tree, is_group_task, load_vscode_tasks, task_label,
+    tree_leaves)
 from taskpilot.qt import theme
 from taskpilot.qt.console_view import ConsoleView
 from taskpilot.qt.terminal_view import TerminalView
+
+#: Role de donnee portant la cle de section ("fav"/"all") sur les en-tetes.
+SECTION_ROLE = Qt.UserRole + 1
 
 POLL_MS = 120
 FAST_POLL_MS = 8
@@ -123,6 +127,8 @@ class TasksTab(QWidget):
         self._tree.itemDoubleClicked.connect(
             lambda *_: self.run_selected())
         self._tree.itemClicked.connect(self._on_item_clicked)
+        self._tree.itemExpanded.connect(self._on_section_toggle)
+        self._tree.itemCollapsed.connect(self._on_section_toggle)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._task_menu)
         # L'arbre est enveloppe dans une carte arrondie : la carte porte le
@@ -263,6 +269,8 @@ class TasksTab(QWidget):
         favorites = set(self.settings.get_favorites(self.project))
         fav_root = QTreeWidgetItem(["★  FAVORIS", "", ""])
         all_root = QTreeWidgetItem(["TOUTES LES TASKS", "", ""])
+        fav_root.setData(0, SECTION_ROLE, "fav")
+        all_root.setData(0, SECTION_ROLE, "all")
         for item in (fav_root, all_root):
             item.setFirstColumnSpanned(True)
             item.setFlags(Qt.ItemIsEnabled)
@@ -280,7 +288,11 @@ class TasksTab(QWidget):
             parent.addChild(child)
             self._task_items.append((child, label))
         fav_root.setHidden(fav_root.childCount() == 0)
-        self._tree.expandAll()
+        # Restaure l'etat replie/deplie memorise (sans declencher la sauvegarde).
+        self._tree.blockSignals(True)
+        fav_root.setExpanded(not self.settings.fav_collapsed)
+        all_root.setExpanded(not self.settings.all_collapsed)
+        self._tree.blockSignals(False)
 
     @staticmethod
     def _style_section(item):
@@ -300,6 +312,17 @@ class TasksTab(QWidget):
         item.setTextAlignment(2, Qt.AlignCenter)
         item.setToolTip(2, "Retirer des favoris" if is_fav
                         else "Ajouter aux favoris")
+
+    def _on_section_toggle(self, item):
+        """Memorise l'etat replie/deplie d'une section (FAVORIS / TOUTES)."""
+        key = item.data(0, SECTION_ROLE)
+        if key is None:
+            return
+        collapsed = not item.isExpanded()
+        if key == "fav":
+            self.settings.fav_collapsed = collapsed
+        elif key == "all":
+            self.settings.all_collapsed = collapsed
 
     def _on_item_clicked(self, item, column):
         """Un clic sur la colonne étoile bascule le favori."""
@@ -395,7 +418,8 @@ class TasksTab(QWidget):
 
     def launch_task(self, label):
         project = self.project
-        leaves, sequential = flatten_tasks(label, self.tasks_by_label, project)
+        tree = build_task_tree(label, self.tasks_by_label, project)
+        leaves = tree_leaves(tree)
         if not leaves:
             QMessageBox.warning(
                 self, "Rien à lancer",
@@ -404,11 +428,11 @@ class TasksTab(QWidget):
         project_color = self.settings.get_project_color(project) or None
         group = label if len(leaves) > 1 else None
         color = self._group_color(group) if group else None
-        if sequential and len(leaves) > 1:
-            self._launch_sequential(leaves, project, group, color, project_color)
-        else:
-            for leaf in leaves:
-                self._launch_leaf(leaf, project, group, color, project_color)
+        # Execute l'arbre en respectant l'ordre propre a chaque groupe :
+        # une *sequence* attend la fin de chaque etape, un groupe *parallel*
+        # lance tous ses enfants simultanement.
+        self._run_node(tree, (project, group, color, project_color),
+                       lambda ok: None)
 
     def _group_color(self, group):
         if group not in self._group_colors:
@@ -430,22 +454,56 @@ class TasksTab(QWidget):
         self._refresh_actions()
         return panel
 
-    def _launch_sequential(self, leaves, project, group, group_color, project_color):
-        def run_next(index):
-            if index >= len(leaves):
-                return
-            panel = self._launch_leaf(leaves[index], project, group, group_color,
-                                      project_color)
+    # -- Execution de l'arbre de dependances --------------------------------
+    def _run_node(self, node, ctx, on_done):
+        """Lance le sous-arbre ``node``. ``on_done(ok)`` est appele quand tout
+        le sous-arbre s'est termine (``ok`` = aucun process en echec). Une
+        feuille qui ne se termine jamais (serveur de dev) n'appelle jamais son
+        ``on_done`` — c'est attendu pour la derniere etape d'une sequence."""
+        if node is None:
+            on_done(True)
+        elif node.is_leaf:
+            panel = self._launch_leaf(node, *ctx)
+            self._watch_exit(panel, on_done)
+        elif node.order == "sequence":
+            self._run_sequence(node.children, 0, ctx, on_done)
+        else:
+            self._run_parallel(node.children, ctx, on_done)
 
-            def watch():
-                console = panel.console
-                if console.is_running() or console.returncode is None:
-                    QTimer.singleShot(WATCH_MS, watch)
-                    return
-                if console.returncode == 0:
-                    run_next(index + 1)
-            QTimer.singleShot(WATCH_MS, watch)
-        run_next(0)
+    def _watch_exit(self, panel, on_done):
+        def watch():
+            console = panel.console
+            if console.is_running() or console.returncode is None:
+                QTimer.singleShot(WATCH_MS, watch)
+                return
+            on_done(console.returncode == 0)
+        QTimer.singleShot(WATCH_MS, watch)
+
+    def _run_sequence(self, children, index, ctx, on_done):
+        if index >= len(children):
+            on_done(True)
+            return
+
+        def step(ok):
+            if not ok:
+                on_done(False)        # une etape echoue -> sequence interrompue
+                return
+            self._run_sequence(children, index + 1, ctx, on_done)
+        self._run_node(children[index], ctx, step)
+
+    def _run_parallel(self, children, ctx, on_done):
+        if not children:
+            on_done(True)
+            return
+        state = {"pending": len(children), "ok": True}
+
+        def child_done(ok):
+            state["ok"] = state["ok"] and ok
+            state["pending"] -= 1
+            if state["pending"] == 0:
+                on_done(state["ok"])
+        for child in children:
+            self._run_node(child, ctx, child_done)
 
     def _tag_panel(self, panel, project, group_color, project_color):
         panel.project = project

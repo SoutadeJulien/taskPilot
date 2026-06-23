@@ -9,7 +9,8 @@ from taskpilot.core import logs
 from taskpilot.core.pty_console import HAVE_PTY, PTY_IMPORT_ERROR, PtyConsole
 from taskpilot.core.task_runner import EVENT_EXIT, EVENT_OUTPUT, TaskConsole
 from taskpilot.core.vscode_tasks import (
-    CommandSpec, flatten_tasks, is_group_task, load_vscode_tasks, task_label)
+    CommandSpec, build_task_tree, is_group_task, load_vscode_tasks, task_label,
+    tree_leaves)
 from taskpilot.ui import theme
 from taskpilot.ui.console_panel import ConsolePanel, InteractiveConsolePanel
 from taskpilot.ui.menubar import PopupMenu
@@ -329,8 +330,8 @@ class TasksTab(ttk.Frame):
 
     def launch_task(self, label):
         project = self.project.get().strip()
-        leaves, sequential = flatten_tasks(
-            label, self.tasks_by_label, project)
+        tree = build_task_tree(label, self.tasks_by_label, project)
+        leaves = tree_leaves(tree)
         if not leaves:
             messagebox.showwarning(
                 "Rien à lancer",
@@ -344,11 +345,11 @@ class TasksTab(ttk.Frame):
         # consoles partagent une couleur et restent cote a cote.
         group = label if len(leaves) > 1 else None
         color = self._group_color(group) if group else None
-        if sequential and len(leaves) > 1:
-            self._launch_sequential(leaves, project, group, color, project_color)
-        else:
-            for leaf in leaves:
-                self._launch_leaf(leaf, project, group, color, project_color)
+        # Execute l'arbre en respectant l'ordre propre a chaque groupe :
+        # une *sequence* attend la fin de chaque etape, un groupe *parallel*
+        # lance tous ses enfants simultanement.
+        self._run_node(tree, (project, group, color, project_color),
+                       lambda ok: None)
 
     def _group_color(self, group):
         """Couleur stable pour un groupe (cyclee dans la palette)."""
@@ -390,26 +391,56 @@ class TasksTab(ttk.Frame):
         panel.group_color = group_color
         panel.set_project_color(project_color)
 
-    def _launch_sequential(self, leaves, project, group=None, group_color=None,
-                           project_color=None):
-        """Enchaine les commandes (dependsOrder: sequence)."""
-        def run_next(index):
-            if index >= len(leaves):
+    # -- Execution de l'arbre de dependances --------------------------------
+    def _run_node(self, node, ctx, on_done):
+        """Lance le sous-arbre ``node``. ``on_done(ok)`` est appele quand tout
+        le sous-arbre s'est termine (``ok`` = aucun process en echec). Une
+        feuille qui ne se termine jamais (serveur de dev) n'appelle jamais son
+        ``on_done`` — c'est attendu pour la derniere etape d'une sequence."""
+        if node is None:
+            on_done(True)
+        elif node.is_leaf:
+            panel = self._launch_leaf(node, *ctx)
+            self._watch_exit(panel, on_done)
+        elif node.order == "sequence":
+            self._run_sequence(node.children, 0, ctx, on_done)
+        else:
+            self._run_parallel(node.children, ctx, on_done)
+
+    def _watch_exit(self, panel, on_done):
+        def watch():
+            console = panel.console
+            if console.is_running() or console.returncode is None:
+                self.after(WATCH_MS, watch)
                 return
-            panel = self._launch_leaf(leaves[index], project, group, group_color,
-                                      project_color)
+            on_done(console.returncode == 0)
+        self.after(WATCH_MS, watch)
 
-            def watch():
-                console = panel.console
-                if console.is_running() or console.returncode is None:
-                    self.after(WATCH_MS, watch)
-                    return
-                if console.returncode == 0:
-                    run_next(index + 1)
+    def _run_sequence(self, children, index, ctx, on_done):
+        if index >= len(children):
+            on_done(True)
+            return
 
-            self.after(WATCH_MS, watch)
+        def step(ok):
+            if not ok:
+                on_done(False)        # une etape echoue -> sequence interrompue
+                return
+            self._run_sequence(children, index + 1, ctx, on_done)
+        self._run_node(children[index], ctx, step)
 
-        run_next(0)
+    def _run_parallel(self, children, ctx, on_done):
+        if not children:
+            on_done(True)
+            return
+        state = {"pending": len(children), "ok": True}
+
+        def child_done(ok):
+            state["ok"] = state["ok"] and ok
+            state["pending"] -= 1
+            if state["pending"] == 0:
+                on_done(state["ok"])
+        for child in children:
+            self._run_node(child, ctx, child_done)
 
     # -- Console interactive vierge ------------------------------------------
     def _popup_new_menu(self):

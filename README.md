@@ -37,7 +37,7 @@ taskpilot/
 │   ├── system.py        Indicateurs plateforme (IS_WIN, NCPU, NO_WINDOW)
 │   ├── processes.py     Détection / kill des process Node (modèle NodeProcess)
 │   ├── jobobject.py     Job Object Windows (kill d'arbre via ctypes)
-│   ├── vscode_tasks.py  Parsing tasks.json + modèles CommandSpec / TaskLeaf
+│   ├── vscode_tasks.py  Parsing tasks.json + modèles CommandSpec / TaskNode
 │   └── task_runner.py   TaskConsole : process + capture de sortie + kill
 └── ui/                  Présentation (Tkinter)
     ├── theme.py         Palette, polices, thème ttk

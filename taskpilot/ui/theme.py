@@ -62,13 +62,18 @@ TYPE_FG = "#6f9c74"              # colonne Type (vert adouci)
 
 # Couleurs de groupe : consoles issues d'une meme task composite (dependsOn).
 # Cyclees dans l'ordre ; servent de barre verticale sur les onglets concernes.
-GROUP_COLORS = ("#6fa8d6", "#d6b36a", "#c98fd0", "#7bc0c0", "#d07a7a", "#9ec46a")
+GROUP_COLORS = ("#6fa8d6", "#d6b36a", "#c98fd0", "#7bc0c0", "#d07a7a", "#9ec46a",
+                "#e0915a", "#7d8af0", "#5ec8a8", "#d99ac0", "#b0c468", "#69b0e0",
+                "#cf8f6a", "#8fb87a", "#b58fd0")
 
 # Palette proposee a l'utilisateur pour colorer un projet : un repere visuel
 # stable sur les onglets/en-tetes de ses consoles, utile pour distinguer deux
 # worktrees qui exposent exactement les memes tasks.
 PROJECT_PALETTE = ("#3b9eff", "#3fb950", "#f0b400", "#f85149", "#bf5af2",
-                   "#1abc9c", "#56d364", "#ff7b29", "#6e7bf2", "#ff5fa8")
+                   "#1abc9c", "#56d364", "#ff7b29", "#6e7bf2", "#ff5fa8",
+                   "#00b8d4", "#8bc34a", "#ff9100", "#e91e63", "#9c27b0",
+                   "#26c6da", "#cddc39", "#ff7043", "#5c6bc0", "#ec407a",
+                   "#00bfa5", "#c0ca33", "#fb8c00", "#7e57c2", "#29b6f6")
 
 # Bouton « Lancer la task » soude sous la liste (vert profond du design).
 RUN_BG = "#2e5a3a"

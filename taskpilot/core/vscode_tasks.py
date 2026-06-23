@@ -9,7 +9,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from taskpilot.core.system import IS_WIN
 
@@ -29,11 +29,27 @@ class CommandSpec:
 
 
 @dataclass
-class TaskLeaf:
-    """Une commande concrete a executer, issue de la resolution d'une task."""
+class TaskNode:
+    """Un noeud de l'arbre de dependances d'une task.
+
+    - Une *feuille* porte une ``spec`` (commande a lancer) et n'a pas d'enfant.
+    - Un *groupe* (``dependsOn``) porte ``spec=None`` et une liste d'enfants
+      ordonnes selon ``order`` (``"sequence"`` ou ``"parallel"``).
+
+    Conserver l'arbre (plutot que de l'aplatir) est indispensable : une task
+    peut melanger les deux ordres a des profondeurs differentes
+    (ex. ``start-app-dev`` est une *sequence* dont la derniere etape ``app-dev``
+    est un groupe *parallel* de serveurs).
+    """
 
     label: str
-    spec: CommandSpec
+    spec: Optional[CommandSpec]      # None pour un groupe pur (dependsOn)
+    order: str                       # "sequence" | "parallel"
+    children: List["TaskNode"]
+
+    @property
+    def is_leaf(self) -> bool:
+        return self.spec is not None and not self.children
 
 
 # ---------------------------------------------------------------------------
@@ -170,34 +186,59 @@ def build_command(task: Task, workspace: str) -> Optional[CommandSpec]:
     return CommandSpec(argv, False, cwd, env, " ".join(argv))
 
 
-def flatten_tasks(label: str, tasks_by_label: Dict[str, Task],
-                  workspace: str, seen=None) -> Tuple[List[TaskLeaf], bool]:
-    """Resout ``dependsOn`` recursivement en une liste ordonnee de commandes.
+def build_task_tree(label: str, tasks_by_label: Dict[str, Task],
+                    workspace: str, seen=None) -> Optional[TaskNode]:
+    """Resout ``dependsOn`` recursivement en un arbre de ``TaskNode``.
 
-    Renvoie ``(leaves, sequential)`` ou ``sequential`` indique qu'un
-    ``dependsOrder: sequence`` a ete rencontre.
+    Chaque groupe conserve son propre ``dependsOrder``, ce qui permet a
+    l'executant de respecter les ordres imbriques (une *sequence* peut contenir
+    un groupe *parallel*, et inversement). Renvoie ``None`` si la task est
+    introuvable, deja vue (cycle / dependance partagee) ou sans rien a lancer.
+
+    ``seen`` est partage sur tout l'arbre : une meme feuille n'est lancee qu'une
+    fois meme si plusieurs groupes la referencent (ex. ``build-electron`` cite a
+    la fois par ``build-packages`` et ``electron-dev``).
     """
     if seen is None:
         seen = set()
     task = tasks_by_label.get(label)
     if task is None or label in seen:
-        return [], False
+        return None
     seen.add(label)
 
-    sequential = task.get("dependsOrder") == "sequence"
-    leaves: List[TaskLeaf] = []
+    order = "sequence" if task.get("dependsOrder") == "sequence" else "parallel"
+    children: List[TaskNode] = []
 
     depends = task.get("dependsOn")
     if depends:
         dep_labels = [depends] if isinstance(depends, str) else list(depends)
         for dep in dep_labels:
-            sub_leaves, sub_seq = flatten_tasks(
-                dep, tasks_by_label, workspace, seen)
-            leaves.extend(sub_leaves)
-            sequential = sequential or sub_seq
+            child = build_task_tree(dep, tasks_by_label, workspace, seen)
+            if child is not None:
+                children.append(child)
 
     spec = build_command(task, workspace)
-    if spec is not None:
-        leaves.append(TaskLeaf(label=task_label(task), spec=spec))
+    name = task_label(task)
 
-    return leaves, sequential
+    # Task avec une commande propre ET des dependances : VS Code lance la
+    # commande apres ses dependances -> on modelise une sequence.
+    if spec is not None and children:
+        children.append(TaskNode(name, spec, "parallel", []))
+        return TaskNode(name, None, "sequence", children)
+    if spec is not None:
+        return TaskNode(name, spec, "parallel", [])
+    if children:
+        return TaskNode(name, None, order, children)
+    return None
+
+
+def tree_leaves(node: Optional[TaskNode]) -> List[TaskNode]:
+    """Liste a plat des feuilles (commandes) d'un arbre, dans l'ordre."""
+    if node is None:
+        return []
+    if node.is_leaf:
+        return [node]
+    out: List[TaskNode] = []
+    for child in node.children:
+        out.extend(tree_leaves(child))
+    return out
