@@ -203,6 +203,21 @@ def find_task_processes(roots) -> List[NodeProcess]:
     return procs
 
 
+def find_processes(roots) -> List[NodeProcess]:
+    """Arbre des process des tasks + process Node orphelins de la machine.
+
+    Comme ``find_task_processes`` mais reste utile quand ``roots`` est vide :
+    les process descendant d'une racine de console sont groupes sous le libelle
+    de leur task (``task`` rempli) ; tous les autres process ``node`` visibles
+    sont retournes avec ``task=None`` (groupe « hors tasks »). Permet a l'onglet
+    Process de fonctionner en permanence, meme sans console lancee.
+    """
+    task_procs = find_task_processes(roots)
+    seen = {p.pid for p in task_procs}
+    others = [p for p in find_node_processes() if p.pid not in seen]
+    return task_procs + others
+
+
 def _all_processes() -> dict:
     """Table ``pid -> {ppid, cmd, mem, cpu_time}`` de tous les process."""
     if IS_WIN:

@@ -15,12 +15,14 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from taskpilot.core.processes import (
-    find_task_processes, format_memory, kill_process)
+    find_processes, format_memory, kill_process)
 from taskpilot.core.system import NCPU
 from taskpilot.qt import theme
 
 REFRESH_MS = 1500
 COLUMNS = ["Task", "Port", "PID", "CPU %", "Mémoire", "Ligne de commande"]
+#: Libelle du groupe des process Node non rattaches a une task en cours.
+ORPHAN_LABEL = "Node (hors tasks)"
 
 
 class ProcessTab(QWidget):
@@ -127,7 +129,7 @@ class ProcessTab(QWidget):
 
     def _worker(self, roots):
         try:
-            procs, err = find_task_processes(roots), None
+            procs, err = find_processes(roots), None
         except Exception as e:  # noqa: BLE001
             procs, err = None, e
         self._collected.emit(procs, err)
@@ -172,7 +174,8 @@ class ProcessTab(QWidget):
         self._tree.blockSignals(True)
         self._tree.clear()
         for label in order:
-            parent = QTreeWidgetItem([label, "", "", "", "", ""])
+            display = label if label is not None else ORPHAN_LABEL
+            parent = QTreeWidgetItem([display, "", "", "", "", ""])
             parent.setData(0, Qt.UserRole, ("task", label))
             pfont = parent.font(0)
             pfont.setBold(True)
@@ -231,12 +234,11 @@ class ProcessTab(QWidget):
     def _update_status(self, procs, ntasks):
         if not procs and not self._flash:
             self._status.setText(
-                "  Aucune task en cours. Lance une task (ou ouvre une console) "
-                "dans l'onglet Tasks.")
+                "  Aucun process Node détecté sur la machine.")
             return
         total_mem = sum(p.mem for p in procs)
         total_cpu = sum(p.cpu for p in procs if p.cpu is not None)
-        text = (f"  {len(procs)} process   •   {ntasks} task(s)"
+        text = (f"  {len(procs)} process   •   {ntasks} groupe(s)"
                 f"   •   CPU total ≈ {total_cpu:.1f} %"
                 f"   •   Mémoire totale {format_memory(total_mem)}")
         if self._flash:
@@ -294,11 +296,11 @@ class ProcessTab(QWidget):
                 if data and data[0] == "proc":
                     pids.append(data[1])
         if not pids:
-            QMessageBox.information(self, "Info", "Aucun process de task à tuer.")
+            QMessageBox.information(self, "Info", "Aucun process Node à tuer.")
             return
         if QMessageBox.question(
                 self, "Confirmer",
-                f"Tuer les {len(pids)} process des tasks en cours ?") != \
+                f"Tuer les {len(pids)} process Node listés ?") != \
                 QMessageBox.Yes:
             return
         self._kill_pids(pids)

@@ -11,13 +11,15 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from taskpilot.core.processes import (
-    find_task_processes, format_memory, kill_process)
+    find_processes, format_memory, kill_process)
 from taskpilot.core.system import NCPU
 from taskpilot.ui import theme
 from taskpilot.ui.rounded import RoundedFrame
 from taskpilot.ui.widgets import make_button
 
 REFRESH_MS = 1500
+#: Libelle du groupe des process Node non rattaches a une task en cours.
+ORPHAN_LABEL = "Node (hors tasks)"
 COLUMNS = ("port", "pid", "cpu", "mem", "cmd")
 HEADINGS = {"port": "Port", "pid": "PID", "cpu": "CPU %",
             "mem": "Mémoire", "cmd": "Ligne de commande"}
@@ -121,7 +123,7 @@ class ProcessTab(ttk.Frame):
 
     def _worker(self, roots):
         try:
-            procs, err = find_task_processes(roots), None
+            procs, err = find_processes(roots), None
         except Exception as e:  # noqa: BLE001
             procs, err = None, e
         self.after(0, self._render, procs, err)
@@ -178,8 +180,9 @@ class ProcessTab(ttk.Frame):
         for label in order:
             parent = self._task_items.get(label)
             if parent is None or not self.tree.exists(parent):
+                display = label if label is not None else ORPHAN_LABEL
                 parent = self.tree.insert(
-                    "", "end", text=f"  {label}", open=True,
+                    "", "end", text=f"  {display}", open=True,
                     image=self.app.node_icon, tags=("task",))
                 self._task_items[label] = parent
             for p in by_task[label]:
@@ -218,12 +221,11 @@ class ProcessTab(ttk.Frame):
     def _update_status(self, procs, ntasks):
         if not procs and not self._flash:
             self.status.config(
-                text="  Aucune task en cours. Lance une task (ou ouvre une "
-                     "console) dans l'onglet Tasks.")
+                text="  Aucun process Node détecté sur la machine.")
             return
         total_mem = sum(p.mem for p in procs)
         total_cpu = sum(p.cpu for p in procs if p.cpu is not None)
-        text = (f"  {len(procs)} process   •   {ntasks} task(s)"
+        text = (f"  {len(procs)} process   •   {ntasks} groupe(s)"
                 f"   •   CPU total ≈ {total_cpu:.1f} %"
                 f"   •   Mémoire totale {format_memory(total_mem)}")
         if self._flash:
@@ -307,11 +309,11 @@ class ProcessTab(ttk.Frame):
     def kill_all(self):
         pids = [pid for pid in self._items]
         if not pids:
-            messagebox.showinfo("Info", "Aucun process de task à tuer.")
+            messagebox.showinfo("Info", "Aucun process Node à tuer.")
             return
         if not messagebox.askyesno(
                 "Confirmer",
-                f"Tuer les {len(pids)} process des tasks en cours ?"):
+                f"Tuer les {len(pids)} process Node listés ?"):
             return
         self._kill_pids(pids)
 
