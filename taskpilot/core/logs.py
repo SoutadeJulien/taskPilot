@@ -5,6 +5,7 @@ dédié du répertoire temporaire de l'OS. Le dossier est vidé au démarrage de
 l'application pour ne garder que les logs de la session courante.
 """
 
+import glob
 import os
 import re
 import shutil
@@ -31,10 +32,25 @@ def set_log_dir(path):
 
 
 def clean_log_dir():
-    """Vide (puis recrée) le dossier des logs. Sans effet en cas d'erreur."""
+    """Supprime les ``.log`` de session du dossier des logs.
+
+    Le dossier étant configurable par l'utilisateur (cf. ``set_log_dir``), on
+    ne fait **jamais** de ``rmtree`` du dossier lui-même : on n'efface que les
+    fichiers ``*.log`` que l'on a nous-mêmes produits, pour ne pas détruire le
+    contenu d'un dossier choisi par l'utilisateur. Le dossier temporaire par
+    défaut, qui nous appartient, peut lui être supprimé intégralement.
+    """
     try:
-        shutil.rmtree(LOG_DIR, ignore_errors=True)
-        os.makedirs(LOG_DIR, exist_ok=True)
+        if os.path.normcase(os.path.abspath(LOG_DIR)) == \
+                os.path.normcase(os.path.abspath(DEFAULT_LOG_DIR)):
+            shutil.rmtree(LOG_DIR, ignore_errors=True)
+            os.makedirs(LOG_DIR, exist_ok=True)
+            return
+        for path in glob.glob(os.path.join(LOG_DIR, "*.log")):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
     except OSError:
         pass
 

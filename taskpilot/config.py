@@ -188,6 +188,17 @@ class Config:
         self._save()
 
     @property
+    def theme(self):
+        """Nom du theme d'interface Qt actif (POC PySide6)."""
+        value = self._data.get("theme", "")
+        return value if isinstance(value, str) and value else "Ardoise indigo"
+
+    @theme.setter
+    def theme(self, value):
+        self._data["theme"] = (value or "").strip()
+        self._save()
+
+    @property
     def log_dir(self):
         """Dossier où enregistrer les logs (vide => dossier temporaire par défaut)."""
         value = self._data.get("log_dir", "")

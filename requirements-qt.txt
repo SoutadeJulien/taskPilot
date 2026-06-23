@@ -1,0 +1,7 @@
+# Dependances du POC d'interface PySide6 (separe de l'UI Tkinter historique).
+# Installer dans un venv Python >= 3.9 (teste avec 3.13) :
+#   py -3.13 -m venv .venv-qt
+#   .venv-qt\Scripts\python -m pip install -r requirements-qt.txt
+PySide6>=6.6
+pywinpty>=2.0      # pseudo-terminal Windows (ConPTY) pour les consoles interactives
+pyte>=0.8         # emulateur de terminal VT100 (rendu du terminal)

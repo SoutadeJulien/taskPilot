@@ -11,6 +11,7 @@ dist/
 # Local config / env
 .taskpilot.json
 .venv/
+.venv-qt/
 venv/
 
 # IDE / OS
