@@ -240,11 +240,6 @@ class TerminalView(QWidget):
         """Copie tout l'écran du terminal, quelle que soit la sélection."""
         QApplication.clipboard().setText(self.edit.toPlainText())
 
-    def copy_output(self):
-        """Copie la sélection (séparateurs de paragraphe -> sauts de ligne)."""
-        text = self.edit.textCursor().selectedText().replace(" ", "\n")
-        QApplication.clipboard().setText(text)
-
     def clear(self):
         self.screen.reset()
         self._render()

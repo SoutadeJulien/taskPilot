@@ -11,7 +11,7 @@ import time
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QMessageBox, QPushButton, QTreeWidget,
+    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from taskpilot.core.processes import (
@@ -87,7 +87,6 @@ class ProcessTab(QWidget):
         self._tree.itemCollapsed.connect(self._on_collapse)
         v.addWidget(self._tree, 1)
 
-        from PySide6.QtWidgets import QLabel
         self._status = QLabel("")
         self._style_status()
         v.addWidget(self._status)

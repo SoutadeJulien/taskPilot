@@ -10,7 +10,7 @@ A relancer si la palette ou le dessin du logo changent :
 import os
 import struct
 
-# Palette (alignee sur taskpilot/ui/theme.py).
+# Palette (alignee sur taskpilot/qt/theme.py).
 ACCENT = (0x6a, 0xa8, 0x84)       # pastille
 ACCENT_FG = (0x0e, 0x1a, 0x14)    # triangle "play"
 

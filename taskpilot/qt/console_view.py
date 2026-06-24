@@ -205,14 +205,6 @@ class ConsoleView(QWidget):
         from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(self.edit.toPlainText())
 
-    def copy_output(self):
-        """Copie la sélection si elle existe, sinon toute la sortie."""
-        from PySide6.QtWidgets import QApplication
-        cursor = self.edit.textCursor()
-        text = cursor.selectedText().replace(" ", "\n") \
-            if cursor.hasSelection() else self.edit.toPlainText()
-        QApplication.clipboard().setText(text)
-
     def clear(self):
         self.edit.clear()
         self._pending = ""

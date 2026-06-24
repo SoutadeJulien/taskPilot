@@ -6,13 +6,14 @@ accelaration quand il reste du backlog.
 """
 
 import os
+import queue
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox,
-    QPushButton, QSplitter, QStackedWidget, QTabBar, QTabWidget, QToolButton,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+    QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QMenu,
+    QMessageBox, QPushButton, QSplitter, QStackedWidget, QTabBar, QTabWidget,
+    QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from taskpilot.core import logs
 from taskpilot.core.pty_console import HAVE_PTY, PtyConsole
@@ -119,7 +120,6 @@ class TasksTab(QWidget):
         self._tree.setAlternatingRowColors(self.settings.alt_rows)
         header = self._tree.header()
         header.setStretchLastSection(False)
-        from PySide6.QtWidgets import QHeaderView
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Fixed)
@@ -744,7 +744,6 @@ class TasksTab(QWidget):
 
     @staticmethod
     def _drain(q, max_chars):
-        import queue
         items, chars = [], 0
         try:
             while chars < max_chars:

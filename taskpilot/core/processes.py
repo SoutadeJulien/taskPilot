@@ -69,99 +69,6 @@ def get_listening_ports():
     return {pid: sorted(s) for pid, s in ports.items()}
 
 
-def find_node_processes() -> List[NodeProcess]:
-    """Liste les process Node visibles sur la machine."""
-    procs: List[NodeProcess] = []
-    port_map = get_listening_ports()
-
-    if IS_WIN:
-        procs = _find_windows(port_map)
-    else:
-        procs = _find_unix(port_map)
-    return procs
-
-
-def _find_windows(port_map) -> List[NodeProcess]:
-    procs: List[NodeProcess] = []
-    try:
-        out = subprocess.check_output(
-            ["wmic", "process", "where", "name='node.exe'",
-             "get", "CommandLine,KernelModeTime,ProcessId,UserModeTime,WorkingSetSize",
-             "/format:csv"],
-            text=True, errors="replace", stderr=subprocess.DEVNULL,
-            creationflags=NO_WINDOW,
-        )
-        for line in out.splitlines():
-            line = line.strip()
-            if not line or line.lower().startswith("node,"):
-                continue
-            parts = line.split(",")
-            if len(parts) < 6:
-                continue
-            working_set = parts[-1].strip()
-            user_time = parts[-2].strip()
-            pid = parts[-3].strip()
-            kernel_time = parts[-4].strip()
-            cmd = ",".join(parts[1:-4]).strip()
-            if not pid.isdigit():
-                continue
-            mem = int(working_set) if working_set.isdigit() else 0
-            if kernel_time.isdigit() and user_time.isdigit():
-                cpu_time = (int(kernel_time) + int(user_time)) / 1e7
-            else:
-                cpu_time = None
-            procs.append(NodeProcess(
-                pid=int(pid), cmd=cmd or "node.exe", mem=mem,
-                cpu_time=cpu_time, ports=port_map.get(int(pid), [])))
-        return procs
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return _find_windows_tasklist(port_map)
-
-
-def _find_windows_tasklist(port_map) -> List[NodeProcess]:
-    """Repli si wmic est absent : tasklist (memoire seule, pas de CPU)."""
-    procs: List[NodeProcess] = []
-    out = subprocess.check_output(
-        ["tasklist", "/FI", "IMAGENAME eq node.exe", "/FO", "CSV", "/NH"],
-        text=True, errors="replace", stderr=subprocess.DEVNULL,
-        creationflags=NO_WINDOW,
-    )
-    for line in out.splitlines():
-        cols = [c.strip('"') for c in line.split('","')]
-        if len(cols) >= 5 and cols[1].isdigit():
-            mem_kb = cols[4].replace(" ", "").replace(" ", "") \
-                .replace("Ko", "").replace("K", "").replace(".", "") \
-                .replace(",", "")
-            mem = int(mem_kb) * 1024 if mem_kb.isdigit() else 0
-            procs.append(NodeProcess(
-                pid=int(cols[1]), cmd=cols[0], mem=mem, cpu_time=None,
-                ports=port_map.get(int(cols[1]), [])))
-    return procs
-
-
-def _find_unix(port_map) -> List[NodeProcess]:
-    procs: List[NodeProcess] = []
-    out = subprocess.check_output(
-        ["ps", "-eo", "pid,rss,time,args"], text=True, errors="replace")
-    for line in out.splitlines()[1:]:
-        line = line.strip()
-        if not line:
-            continue
-        fields = line.split(None, 3)
-        if len(fields) < 4 or not fields[0].isdigit():
-            continue
-        pid, rss, cputime, args = fields
-        name = args.lower()
-        if "node" not in name or "taskpilot" in name:
-            continue
-        procs.append(NodeProcess(
-            pid=int(pid), cmd=args.strip(),
-            mem=int(rss) * 1024 if rss.isdigit() else 0,
-            cpu_time=parse_ps_time(cputime),
-            ports=port_map.get(int(pid), [])))
-    return procs
-
-
 def find_task_processes(roots) -> List[NodeProcess]:
     """Liste tous les process des tasks, arbre complet.
 
@@ -172,13 +79,13 @@ def find_task_processes(roots) -> List[NodeProcess]:
     Chaque process retourne porte le ``task`` de la racine qui l'a capture en
     premier (pas de doublon entre tasks).
     """
-    if not roots:
-        return []
-    table = _all_processes()
-    if not table:
-        return []
-    port_map = get_listening_ports()
+    return _collect_task_trees(roots, _all_processes(), get_listening_ports())
 
+
+def _collect_task_trees(roots, table, port_map) -> List[NodeProcess]:
+    """Collecte les arbres de process de ``roots`` dans une table deja batie."""
+    if not roots or not table:
+        return []
     children = {}
     for pid, info in table.items():
         children.setdefault(info["ppid"], []).append(pid)
@@ -203,19 +110,42 @@ def find_task_processes(roots) -> List[NodeProcess]:
     return procs
 
 
+def _is_node(info) -> bool:
+    """Vrai si l'entree de table ``_all_processes`` est un process Node."""
+    if IS_WIN:
+        return info.get("name", "").lower() == "node.exe"
+    cmd = (info.get("cmd") or "").lower()
+    return "node" in cmd and "taskpilot" not in cmd
+
+
+def _node_orphans(table, port_map, seen) -> List[NodeProcess]:
+    """Process Node de la machine non deja captures sous une task (``seen``)."""
+    procs: List[NodeProcess] = []
+    for pid, info in table.items():
+        if pid in seen or not _is_node(info):
+            continue
+        procs.append(NodeProcess(
+            pid=pid, cmd=info["cmd"] or "node", mem=info["mem"],
+            cpu_time=info["cpu_time"], ports=port_map.get(pid, [])))
+    return procs
+
+
 def find_processes(roots) -> List[NodeProcess]:
     """Arbre des process des tasks + process Node orphelins de la machine.
 
-    Comme ``find_task_processes`` mais reste utile quand ``roots`` est vide :
-    les process descendant d'une racine de console sont groupes sous le libelle
+    Les process descendant d'une racine de console sont groupes sous le libelle
     de leur task (``task`` rempli) ; tous les autres process ``node`` visibles
     sont retournes avec ``task=None`` (groupe « hors tasks »). Permet a l'onglet
     Process de fonctionner en permanence, meme sans console lancee.
+
+    Une seule enumeration des process (``_all_processes``) et un seul listing
+    des ports (``get_listening_ports``) servent aux deux groupes.
     """
-    task_procs = find_task_processes(roots)
+    table = _all_processes()
+    port_map = get_listening_ports()
+    task_procs = _collect_task_trees(roots, table, port_map)
     seen = {p.pid for p in task_procs}
-    others = [p for p in find_node_processes() if p.pid not in seen]
-    return task_procs + others
+    return task_procs + _node_orphans(table, port_map, seen)
 
 
 def _all_processes() -> dict:
@@ -230,7 +160,7 @@ def _all_processes_windows() -> dict:
     try:
         out = subprocess.check_output(
             ["wmic", "process", "get",
-             "CommandLine,KernelModeTime,ParentProcessId,ProcessId,"
+             "CommandLine,KernelModeTime,Name,ParentProcessId,ProcessId,"
              "UserModeTime,WorkingSetSize", "/format:csv"],
             text=True, errors="replace", stderr=subprocess.DEVNULL,
             creationflags=NO_WINDOW,
@@ -242,15 +172,15 @@ def _all_processes_windows() -> dict:
         if not line or line.lower().startswith("node,"):
             continue
         parts = line.split(",")
-        if len(parts) < 7:
+        if len(parts) < 8:
             continue
         # Colonnes (ordre alphabetique wmic, prefixees du nom de machine) :
-        # Node,CommandLine,KernelModeTime,ParentProcessId,ProcessId,
+        # Node,CommandLine,KernelModeTime,Name,ParentProcessId,ProcessId,
         # UserModeTime,WorkingSetSize. On lit par la fin (champs numeriques),
         # la CommandLine pouvant contenir des virgules.
         working, user, pid = parts[-1].strip(), parts[-2].strip(), parts[-3].strip()
-        ppid, kernel = parts[-4].strip(), parts[-5].strip()
-        cmd = ",".join(parts[1:-5]).strip()
+        ppid, name, kernel = parts[-4].strip(), parts[-5].strip(), parts[-6].strip()
+        cmd = ",".join(parts[1:-6]).strip()
         if not pid.isdigit():
             continue
         if kernel.isdigit() and user.isdigit():
@@ -259,7 +189,8 @@ def _all_processes_windows() -> dict:
             cpu_time = None
         table[int(pid)] = {
             "ppid": int(ppid) if ppid.isdigit() else None,
-            "cmd": cmd, "mem": int(working) if working.isdigit() else 0,
+            "cmd": cmd, "name": name,
+            "mem": int(working) if working.isdigit() else 0,
             "cpu_time": cpu_time}
     return table
 
@@ -269,8 +200,9 @@ def _all_processes_powershell() -> dict:
     table = {}
     script = (
         "Get-CimInstance Win32_Process | ForEach-Object { "
-        "'{0}`t{1}`t{2}`t{3}`t{4}' -f $_.ProcessId,$_.ParentProcessId,"
-        "$_.WorkingSetSize,($_.KernelModeTime+$_.UserModeTime),$_.CommandLine }"
+        "'{0}`t{1}`t{2}`t{3}`t{4}`t{5}' -f $_.ProcessId,$_.ParentProcessId,"
+        "$_.WorkingSetSize,($_.KernelModeTime+$_.UserModeTime),$_.Name,"
+        "$_.CommandLine }"
     )
     try:
         out = subprocess.check_output(
@@ -281,13 +213,13 @@ def _all_processes_powershell() -> dict:
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return {}
     for line in out.splitlines():
-        f = line.split("\t", 4)
-        if len(f) < 4 or not f[0].isdigit():
+        f = line.split("\t", 5)
+        if len(f) < 5 or not f[0].isdigit():
             continue
         ticks = int(f[3]) if f[3].isdigit() else None
         table[int(f[0])] = {
             "ppid": int(f[1]) if f[1].isdigit() else None,
-            "cmd": f[4] if len(f) > 4 else "",
+            "name": f[4], "cmd": f[5] if len(f) > 5 else "",
             "mem": int(f[2]) if f[2].isdigit() else 0,
             "cpu_time": ticks / 1e7 if ticks is not None else None}
     return table

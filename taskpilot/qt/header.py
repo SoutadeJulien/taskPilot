@@ -13,7 +13,7 @@ from taskpilot.qt import theme
 class ConsoleHeader(QFrame):
     """Barre d'en-tete d'une console : pastille + etat + bouton Redemarrer."""
 
-    def __init__(self, on_restart, on_copy=None, parent=None):
+    def __init__(self, on_restart, parent=None):
         super().__init__(parent)
         self._status = ("running", None)
         self._dot_color = None
@@ -28,13 +28,6 @@ class ConsoleHeader(QFrame):
         self.status = QLabel()
         h.addWidget(self.status)
         h.addStretch(1)
-        if on_copy is not None:
-            self._copy = QPushButton("⧉ Copier")
-            self._copy.setToolTip(
-                "Copier la sélection (ou toute la sortie si rien n'est "
-                "sélectionné)")
-            self._copy.clicked.connect(lambda: on_copy())
-            h.addWidget(self._copy)
         self._restart = QPushButton("↻ Redémarrer")
         self._restart.setToolTip("Relancer la commande dans cette console")
         self._restart.clicked.connect(lambda: on_restart())
