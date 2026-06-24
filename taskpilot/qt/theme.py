@@ -13,7 +13,7 @@ plutot que par des bordures ; arrondis reserves aux controles.
 from dataclasses import dataclass, fields
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette
 
 
 # ---------------------------------------------------------------------------
@@ -553,7 +553,10 @@ def build_qss(pal):
     r = radius  # rayons mis a l'echelle par le facteur global RADIUS
     d = pad     # espacements mis a l'echelle par la densite DENSITY
     return f"""
-* {{ font-family: "{UI_FONT}"; font-size: {UI_FONT_SIZE}px; color: {FG}; }}
+/* La police d'interface est posee via QApplication.setFont (police par
+   defaut, surchargeable par setFont) — surtout PAS via un selecteur * en QSS,
+   qui ecraserait le setFont des consoles (police monospace + zoom). */
+* {{ color: {FG}; }}
 QMainWindow, QWidget {{ background: {APP_BG}; }}
 QToolTip {{
     background: {SURFACE_3}; color: {FG};
@@ -717,6 +720,7 @@ def set_theme(name):
 def apply_theme(app, name):
     """Applique le theme ``name`` a une ``QApplication`` (live-switch)."""
     set_theme(name)
+    app.setFont(app_font())
     app.setPalette(build_palette())
     app.setStyleSheet(QSS)
     notifier.changed.emit()
@@ -772,6 +776,7 @@ def set_ui_font(family=None, size=None):
 def apply_ui_font(app, family=None, size=None):
     """Applique la police d'interface a une ``QApplication`` (live-switch)."""
     set_ui_font(family, size)
+    app.setFont(app_font())
     app.setStyleSheet(QSS)
     notifier.changed.emit()
 
@@ -784,6 +789,25 @@ def set_mono_font(family=None, size=None):
     if size:
         MONO_SIZE = int(size)
     notifier.fonts_changed.emit()
+
+
+def app_font():
+    """Police par defaut de l'application (interface), en pixels pour coller
+    a l'ancien dimensionnement QSS (``font-size: Npx``)."""
+    f = QFont(UI_FONT)
+    f.setPixelSize(UI_FONT_SIZE)
+    return f
+
+
+def mono_font(size=None):
+    """``QFont`` monospace des consoles, avec liste de familles de repli
+    (``MONO_FAMILY`` peut etre ``"Cascadia Mono, Consolas"``)."""
+    fams = [f.strip() for f in MONO_FAMILY.split(",") if f.strip()]
+    f = QFont(fams[0] if fams else "Consolas")
+    if len(fams) > 1:
+        f.setFamilies(fams)
+    f.setPointSize(int(size or MONO_SIZE))
+    return f
 
 
 def set_accent_override(hexstr):

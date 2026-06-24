@@ -82,7 +82,7 @@ class ConsoleView(QWidget):
         edit.setReadOnly(True)
         edit.setMaximumBlockCount(0)
         edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
-        edit.setFont(QFont(theme.MONO_FAMILY, self._base_size))
+        edit.setFont(theme.mono_font(self._base_size))
         edit.setFrameStyle(QFrame.NoFrame)
         return edit
 
@@ -123,7 +123,7 @@ class ConsoleView(QWidget):
     def _on_fonts(self):
         """Police monospace modifiee : on la reapplique (remet le zoom a zero)."""
         self._base_size = theme.MONO_SIZE
-        self.edit.setFont(QFont(theme.MONO_FAMILY, self._base_size))
+        self.edit.setFont(theme.mono_font(self._base_size))
 
     @staticmethod
     def _apply_cr(line):
@@ -219,8 +219,10 @@ class ConsoleView(QWidget):
 
     def zoom(self, delta):
         font = self.edit.font()
-        size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, font.pointSize() + delta))
-        font.setPointSize(size)
+        cur = font.pointSize()
+        if cur <= 0:               # police posee en pixels : repart de la base
+            cur = self._base_size
+        font.setPointSize(max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, cur + delta)))
         self.edit.setFont(font)
 
     def reset_zoom(self):

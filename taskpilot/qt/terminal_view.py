@@ -49,7 +49,7 @@ class _TermEdit(QPlainTextEdit):
         self._owner = owner
         self.setReadOnly(False)
         self.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.setFont(QFont(theme.MONO_FAMILY, owner._base_size))
+        self.setFont(theme.mono_font(owner._base_size))
         self.setFrameStyle(QFrame.NoFrame)
         self.setCursorWidth(0)        # le curseur VT est dessine par pyte
         # La molette est delivree au viewport (et non a wheelEvent) : on la
@@ -122,10 +122,7 @@ class TerminalView(QWidget):
     def _on_fonts(self):
         """Police monospace modifiee : reapplique (remet le zoom a zero)."""
         self._base_size = theme.MONO_SIZE
-        font = self.edit.font()
-        font.setFamily(theme.MONO_FAMILY.split(",")[0].strip())
-        font.setPointSize(self._base_size)
-        self.edit.setFont(font)
+        self.edit.setFont(theme.mono_font(self._base_size))
         self._resync_size()
         self._formats.clear()
         self._render()
@@ -254,8 +251,10 @@ class TerminalView(QWidget):
 
     def zoom(self, delta):
         font = self.edit.font()
-        size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, font.pointSize() + delta))
-        font.setPointSize(size)
+        cur = font.pointSize()
+        if cur <= 0:               # police posee en pixels : repart de la base
+            cur = self._base_size
+        font.setPointSize(max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, cur + delta)))
         self.edit.setFont(font)
         self._resync_size()
 
