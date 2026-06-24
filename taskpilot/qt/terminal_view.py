@@ -7,7 +7,7 @@ les bonnes sequences VT, ce qui fait tourner les programmes plein ecran
 (``claude``, REPL...).
 """
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import (
     QColor, QFont, QFontMetricsF, QKeySequence, QTextCharFormat, QTextCursor)
 from PySide6.QtWidgets import (
@@ -52,6 +52,16 @@ class _TermEdit(QPlainTextEdit):
         self.setFont(QFont(theme.MONO_FAMILY, owner._base_size))
         self.setFrameStyle(QFrame.NoFrame)
         self.setCursorWidth(0)        # le curseur VT est dessine par pyte
+        # La molette est delivree au viewport (et non a wheelEvent) : on la
+        # filtre la pour le zoom Ctrl+molette.
+        self.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if (obj is self.viewport() and event.type() == QEvent.Wheel
+                and event.modifiers() & Qt.ControlModifier):
+            self._owner.zoom(1 if event.angleDelta().y() > 0 else -1)
+            return True
+        return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event):
         owner = self._owner
@@ -72,11 +82,9 @@ class _TermEdit(QPlainTextEdit):
         self._owner._resync_size()
 
     def wheelEvent(self, event):
-        if event.modifiers() & Qt.ControlModifier:
-            self._owner.zoom(1 if event.angleDelta().y() > 0 else -1)
-            event.accept()
-        else:
-            super().wheelEvent(event)
+        # Filet de securite : le zoom Ctrl+molette est gere par l'event filter
+        # sur le viewport (cf. __init__) ; ici, defilement normal uniquement.
+        super().wheelEvent(event)
 
 
 class TerminalView(QWidget):

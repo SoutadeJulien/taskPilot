@@ -8,7 +8,7 @@ et le scroll sont natifs.
 
 import re
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QFrame, QMessageBox, QPlainTextEdit, QTextEdit, QVBoxLayout, QWidget)
@@ -258,6 +258,16 @@ class _ConsoleEdit(QPlainTextEdit):
         self._owner = owner
         self._hover_range = None      # (start, end) en positions document
         self.setMouseTracking(True)
+        # Les evenements molette sont delivres au viewport (pas a wheelEvent) :
+        # on les filtre la pour gerer le zoom Ctrl+molette de maniere fiable.
+        self.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if (obj is self.viewport() and event.type() == QEvent.Wheel
+                and event.modifiers() & Qt.ControlModifier):
+            self._owner.zoom(1 if event.angleDelta().y() > 0 else -1)
+            return True
+        return super().eventFilter(obj, event)
 
     def mouseMoveEvent(self, event):
         cursor = self.cursorForPosition(event.pos())

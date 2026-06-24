@@ -99,8 +99,12 @@ class MainWindow(QMainWindow):
         self._add(run_menu, "Tout redémarrer", tasks.restart_all)
 
         console_menu = bar.addMenu("Console")
-        self._add(console_menu, "Zoom avant", lambda: tasks.zoom_current(1),
-                  "Ctrl++")
+        # Ctrl++ n'est pas fiable selon les claviers : on ajoute Ctrl+= (meme
+        # touche sans Maj) comme alias.
+        zoom_in = self._add(console_menu, "Zoom avant",
+                            lambda: tasks.zoom_current(1), "Ctrl++")
+        zoom_in.setShortcuts(
+            [QKeySequence("Ctrl++"), QKeySequence("Ctrl+=")])
         self._add(console_menu, "Zoom arrière", lambda: tasks.zoom_current(-1),
                   "Ctrl+-")
         self._add(console_menu, "Réinitialiser le zoom",
@@ -110,11 +114,14 @@ class MainWindow(QMainWindow):
         self._add(console_menu, "Vider la console", tasks.clear_current)
 
         opt = bar.addMenu("Options")
-        self._build_theme_menu(opt.addMenu("Thème"))
-        self._build_accent_menu(opt.addMenu("Accent"))
-        self._build_radius_menu(opt.addMenu("Arrondis"))
-        self._build_density_menu(opt.addMenu("Densité"))
-        font_menu = opt.addMenu("Police")
+
+        # — Apparence : thème, couleurs, polices, mise en page —
+        appearance = opt.addMenu("Apparence")
+        self._build_theme_menu(appearance.addMenu("Thème"))
+        self._build_accent_menu(appearance.addMenu("Accent"))
+        self._build_radius_menu(appearance.addMenu("Arrondis"))
+        self._build_density_menu(appearance.addMenu("Densité"))
+        font_menu = appearance.addMenu("Police")
         self._build_font_choice_menu(
             font_menu.addMenu("Interface — police"),
             theme.UI_FONT_CHOICES, self.settings.ui_font_family,
@@ -131,29 +138,36 @@ class MainWindow(QMainWindow):
             font_menu.addMenu("Console — taille"),
             theme.MONO_FONT_SIZES, self.settings.mono_font_size,
             lambda s: self._set_mono_font(size=s))
-        self._build_tabalign_menu(opt.addMenu("Alignement des onglets"))
-        self._build_opacity_menu(opt.addMenu("Opacité de la fenêtre"))
-        opt.addSeparator()
+        self._build_tabalign_menu(appearance.addMenu("Alignement des onglets"))
+        self._build_opacity_menu(appearance.addMenu("Opacité de la fenêtre"))
+        appearance.addSeparator()
         self._alt_rows_act = self._add_check(
-            opt, "Lignes alternées", self.settings.alt_rows, self._set_alt_rows)
+            appearance, "Lignes alternées", self.settings.alt_rows,
+            self._set_alt_rows)
         self._statusbar_act = self._add_check(
-            opt, "Barre de statut", self.settings.show_statusbar,
+            appearance, "Barre de statut", self.settings.show_statusbar,
             self._set_statusbar)
-        opt.addSeparator()
-        self._build_editor_menu(opt.addMenu("Éditeur de code"))
-        opt.addSeparator()
+
+        # — Comportement : éditeur, confirmations —
+        behavior = opt.addMenu("Comportement")
+        self._build_editor_menu(behavior.addMenu("Éditeur de code"))
+        behavior.addSeparator()
         self._confirm_act = self._add_check(
-            opt, "Confirmer les actions groupées", self.settings.confirm_bulk,
-            self._save_confirm)
+            behavior, "Confirmer les actions groupées",
+            self.settings.confirm_bulk, self._save_confirm)
+
+        # — Logs : enregistrement et dossier —
+        logs_menu = opt.addMenu("Logs")
         self._logs_act = self._add_check(
-            opt, "Enregistrer les logs", self.settings.save_logs,
+            logs_menu, "Enregistrer les logs", self.settings.save_logs,
             self._save_logs_pref)
-        opt.addSeparator()
-        self._add(opt, "Choisir le dossier des logs…", self._choose_log_dir)
-        self._log_path_act = self._add(opt, logs.LOG_DIR, None)
+        logs_menu.addSeparator()
+        self._add(logs_menu, "Choisir le dossier des logs…",
+                  self._choose_log_dir)
+        self._log_path_act = self._add(logs_menu, logs.LOG_DIR, None)
         self._log_path_act.setEnabled(False)
-        self._add(opt, "Ouvrir le dossier des logs", logs.open_log_dir)
-        self._add(opt, "Vider les logs", logs.clean_log_dir)
+        self._add(logs_menu, "Ouvrir le dossier des logs", logs.open_log_dir)
+        self._add(logs_menu, "Vider les logs", logs.clean_log_dir)
 
         help_menu = bar.addMenu("Aide")
         self._add(help_menu, "Raccourcis clavier", self._show_shortcuts)
