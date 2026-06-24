@@ -14,12 +14,12 @@ block_cipher = None
 # dans l'exe autonome. ATTENTION : collect_all renvoie (datas, binaries,
 # hiddenimports) DANS CET ORDRE — toute inversion casse le bundling du PTY.
 # PySide6 (interface Qt) est embarque par le hook PyInstaller du module, tire
-# automatiquement par l'import dans main_qt.py.
+# automatiquement par l'import dans main.py.
 _pty_d, _pty_b, _pty_h = collect_all("winpty")
 _pyte_d, _pyte_b, _pyte_h = collect_all("pyte")
 
 a = Analysis(
-    ["main_qt.py"],
+    ["main.py"],
     pathex=[],
     binaries=_pty_b + _pyte_b,
     datas=_pty_d + _pyte_d + [("taskpilot/assets", "taskpilot/assets")],

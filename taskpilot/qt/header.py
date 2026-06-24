@@ -7,7 +7,7 @@ Se re-style a chaud lors d'un changement de theme (``theme.notifier``).
 
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
-from taskpilot.qt import effects, theme
+from taskpilot.qt import theme
 
 
 class ConsoleHeader(QFrame):
@@ -40,7 +40,6 @@ class ConsoleHeader(QFrame):
         self._restart.clicked.connect(lambda: on_restart())
         h.addWidget(self._restart)
 
-        effects.add_shadow(self, blur=20, dy=3, alpha=90)
         self._restyle()
         theme.notifier.changed.connect(self._restyle)
 
@@ -90,6 +89,6 @@ class ConsoleHeader(QFrame):
     def _restyle(self):
         self.setStyleSheet(
             f"ConsoleHeader {{ background: {theme.SURFACE_2}; "
-            f"border-radius: 10px; }}")
+            f"border-radius: {theme.radius(10)}px; }}")
         self._apply_status()
         self._apply_dot()

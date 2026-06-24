@@ -1,10 +1,9 @@
 """Panneau d'affichage (lecture seule) de la sortie d'un ``TaskConsole``.
 
-Equivalent Qt de ``taskpilot.ui.console_panel`` : en-tete (etat + couleur de
-projet + redemarrer) au-dessus d'un ``QPlainTextEdit``. Le coloriage par niveau
-de log, la semantique du retour chariot ``\\r`` et le zoom sont repris a
-l'identique. Le rendu de gros buffers, la selection et le scroll sont natifs
-(la ou Tkinter exigeait du code dedie : ``line_select.py``, troncature, etc.).
+En-tete (etat + couleur de projet + redemarrer) au-dessus d'un
+``QPlainTextEdit``. Le coloriage par niveau de log, la semantique du retour
+chariot ``\\r`` et le zoom y sont geres. Le rendu de gros buffers, la selection
+et le scroll sont natifs.
 """
 
 import re
@@ -59,6 +58,7 @@ class ConsoleView(QWidget):
         self._formats = {}
         self._build()
         theme.notifier.changed.connect(self._on_theme)
+        theme.notifier.fonts_changed.connect(self._on_fonts)
 
     # -- Construction --------------------------------------------------------
     def _build(self):
@@ -100,6 +100,11 @@ class ConsoleView(QWidget):
         """Au changement de theme : les nouvelles lignes prennent les nouvelles
         couleurs (le cache de formats est invalide)."""
         self._formats.clear()
+
+    def _on_fonts(self):
+        """Police monospace modifiee : on la reapplique (remet le zoom a zero)."""
+        self._base_size = theme.MONO_SIZE
+        self.edit.setFont(QFont(theme.MONO_FAMILY, self._base_size))
 
     @staticmethod
     def _apply_cr(line):
@@ -169,6 +174,7 @@ class ConsoleView(QWidget):
         """Coupe les abonnements au thème (à appeler avant destruction)."""
         try:
             theme.notifier.changed.disconnect(self._on_theme)
+            theme.notifier.fonts_changed.disconnect(self._on_fonts)
         except (RuntimeError, TypeError):
             pass
         self.header.dispose()

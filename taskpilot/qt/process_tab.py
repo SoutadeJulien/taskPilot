@@ -40,6 +40,7 @@ class ProcessTab(QWidget):
         self._flash = None
         self._activated = False
         self._collapsed = set()       # labels de tasks repliees par l'utilisateur
+        self.process_count = None     # dernier total de process (barre de statut)
         self._collected.connect(self._render)
         theme.notifier.changed.connect(self._on_theme)
 
@@ -75,7 +76,7 @@ class ProcessTab(QWidget):
         self._tree.setColumnCount(len(COLUMNS))
         self._tree.setHeaderLabels(COLUMNS)
         self._tree.setSelectionMode(QTreeWidget.ExtendedSelection)
-        self._tree.setAlternatingRowColors(True)
+        self._tree.setAlternatingRowColors(self.app.settings.alt_rows)
         self._tree.setColumnWidth(0, 200)
         self._tree.setColumnWidth(5, 480)
         for col in range(1, 5):
@@ -87,15 +88,16 @@ class ProcessTab(QWidget):
         v.addWidget(self._tree, 1)
 
         from PySide6.QtWidgets import QLabel
-        from taskpilot.qt import effects
         self._status = QLabel("")
         self._style_status()
-        effects.add_shadow(self._status, blur=18, dy=3, alpha=80)
         v.addWidget(self._status)
+
+    def set_alternating_rows(self, on):
+        self._tree.setAlternatingRowColors(bool(on))
 
     def _style_status(self):
         self._status.setStyleSheet(
-            f"background: {theme.SURFACE_2}; border-radius: 9px; "
+            f"background: {theme.SURFACE_2}; border-radius: {theme.radius(9)}px; "
             f"padding: 11px 14px; color: {theme.FG_DIM};")
 
     def _on_theme(self):
@@ -194,6 +196,10 @@ class ProcessTab(QWidget):
         self._tree.blockSignals(False)
         self._mark_header()
         self._update_status(procs, len(order))
+        self.process_count = len(procs)
+        refresh = getattr(self.app, "refresh_status_bar", None)
+        if refresh is not None:
+            refresh()
 
     def _on_expand(self, item):
         data = item.data(0, Qt.UserRole)

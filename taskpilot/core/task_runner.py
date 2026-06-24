@@ -1,6 +1,6 @@
 """Execution d'une commande de task : process, capture de sortie, kill d'arbre.
 
-``TaskConsole`` n'a aucune dependance a Tkinter : il pousse ses evenements
+``TaskConsole`` n'a aucune dependance a l'UI : il pousse ses evenements
 dans une ``queue.Queue`` que la couche UI draine a son rythme.
 """
 

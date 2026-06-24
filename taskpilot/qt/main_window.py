@@ -1,16 +1,17 @@
 """Fenetre principale Qt : onglets Tasks / Process + barre de menus.
 
-Note DPI : contrairement a l'UI Tkinter (``_enable_dpi_awareness`` + facteur
-``_sc()`` applique a la main partout), Qt gere le High-DPI nativement — il n'y
-a donc aucun code d'echelle ici.
+Note DPI : Qt gere le High-DPI nativement — il n'y a donc aucun code
+d'echelle a la main ici.
 """
 
 import os
 
-from PySide6.QtGui import QAction, QActionGroup, QIcon, QKeySequence
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import (
+    QAction, QActionGroup, QColor, QIcon, QKeySequence, QPixmap)
 from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QMainWindow, QMessageBox, QTabWidget,
-    QVBoxLayout, QWidget)
+    QApplication, QColorDialog, QFileDialog, QLabel, QMainWindow, QMessageBox,
+    QTabWidget, QVBoxLayout, QWidget)
 
 from taskpilot import __version__
 from taskpilot.core import logs
@@ -21,11 +22,18 @@ from taskpilot.qt.tasks_tab import TasksTab
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
 
 
+def _color_icon(color):
+    """Petite pastille de couleur pour une entree de menu."""
+    pix = QPixmap(14, 14)
+    pix.fill(QColor(color))
+    return QIcon(pix)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, settings):
         super().__init__()
         self.settings = settings
-        self.setWindowTitle("TaskPilot — POC Qt")
+        self.setWindowTitle("TaskPilot")
         self.resize(1024, 620)
         self.setMinimumSize(720, 420)
         icon_path = os.path.join(ASSETS, "icon.ico")
@@ -48,7 +56,23 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self._build_menus()
-        self.statusBar().showMessage(f"TaskPilot {__version__} — POC PySide6")
+
+        # Barre de statut « vivante » : projet, consoles actives, process Node.
+        self._status_label = QLabel()
+        self._status_label.setContentsMargins(10, 0, 10, 0)
+        self.statusBar().addWidget(self._status_label)
+        # Evite que le contenu touche les bords de la fenetre.
+        self.statusBar().setContentsMargins(6, 2, 6, 2)
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self.refresh_status_bar)
+        self._status_timer.start(1000)
+        self.refresh_status_bar()
+
+        # Reglages d'apparence persistes appliques a la fenetre/aux onglets.
+        self.setWindowOpacity(settings.opacity)
+        self._apply_tab_align(settings.tab_align)
+        self._apply_alt_rows(settings.alt_rows)
+        self.statusBar().setVisible(settings.show_statusbar)
 
     # -- Menus ---------------------------------------------------------------
     def _build_menus(self):
@@ -87,6 +111,34 @@ class MainWindow(QMainWindow):
 
         opt = bar.addMenu("Options")
         self._build_theme_menu(opt.addMenu("Thème"))
+        self._build_accent_menu(opt.addMenu("Accent"))
+        self._build_radius_menu(opt.addMenu("Arrondis"))
+        self._build_density_menu(opt.addMenu("Densité"))
+        font_menu = opt.addMenu("Police")
+        self._build_font_choice_menu(
+            font_menu.addMenu("Interface — police"),
+            theme.UI_FONT_CHOICES, self.settings.ui_font_family,
+            lambda f: self._set_ui_font(family=f))
+        self._build_font_choice_menu(
+            font_menu.addMenu("Interface — taille"),
+            theme.UI_FONT_SIZES, self.settings.ui_font_size,
+            lambda s: self._set_ui_font(size=s))
+        self._build_font_choice_menu(
+            font_menu.addMenu("Console — police"),
+            theme.MONO_FONT_CHOICES, self.settings.mono_font_family,
+            lambda f: self._set_mono_font(family=f))
+        self._build_font_choice_menu(
+            font_menu.addMenu("Console — taille"),
+            theme.MONO_FONT_SIZES, self.settings.mono_font_size,
+            lambda s: self._set_mono_font(size=s))
+        self._build_tabalign_menu(opt.addMenu("Alignement des onglets"))
+        self._build_opacity_menu(opt.addMenu("Opacité de la fenêtre"))
+        opt.addSeparator()
+        self._alt_rows_act = self._add_check(
+            opt, "Lignes alternées", self.settings.alt_rows, self._set_alt_rows)
+        self._statusbar_act = self._add_check(
+            opt, "Barre de statut", self.settings.show_statusbar,
+            self._set_statusbar)
         opt.addSeparator()
         self._confirm_act = self._add_check(
             opt, "Confirmer les actions groupées", self.settings.confirm_bulk,
@@ -119,6 +171,166 @@ class MainWindow(QMainWindow):
     def _set_theme(self, name):
         self.settings.theme = name
         theme.apply_theme(QApplication.instance(), name)
+
+    def _build_radius_menu(self, menu):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        active = self.settings.radius
+        for label, scale in theme.RADIUS_PRESETS.items():
+            act = QAction(label, self, checkable=True)
+            act.setChecked(abs(scale - active) < 1e-6)
+            act.triggered.connect(lambda _=False, s=scale: self._set_radius(s))
+            group.addAction(act)
+            menu.addAction(act)
+
+    def _set_radius(self, scale):
+        self.settings.radius = scale
+        theme.apply_radius(QApplication.instance(), scale)
+
+    # -- Densité -------------------------------------------------------------
+    def _build_density_menu(self, menu):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        active = self.settings.density
+        for label, scale in theme.DENSITY_PRESETS.items():
+            act = QAction(label, self, checkable=True)
+            act.setChecked(abs(scale - active) < 1e-6)
+            act.triggered.connect(lambda _=False, s=scale: self._set_density(s))
+            group.addAction(act)
+            menu.addAction(act)
+
+    def _set_density(self, scale):
+        self.settings.density = scale
+        theme.apply_density(QApplication.instance(), scale)
+
+    # -- Accent --------------------------------------------------------------
+    def _build_accent_menu(self, menu):
+        active = self.settings.accent_override
+        follow = QAction("Suivre le thème", self, checkable=True)
+        follow.setChecked(not active)
+        follow.triggered.connect(lambda: self._set_accent(""))
+        menu.addAction(follow)
+        menu.addSeparator()
+        for color in theme.ACCENT_CHOICES:
+            act = QAction(("✓ " if color.lower() == active.lower() else "    ")
+                          + color, self)
+            act.setIcon(_color_icon(color))
+            act.triggered.connect(lambda _=False, c=color: self._set_accent(c))
+            menu.addAction(act)
+        menu.addSeparator()
+        self._add(menu, "Couleur personnalisée…", self._pick_accent)
+
+    def _pick_accent(self):
+        start = self.settings.accent_override or theme.ACCENT
+        col = QColorDialog.getColor(QColor(start), self, "Couleur d'accent")
+        if col.isValid():
+            self._set_accent(col.name())
+
+    def _set_accent(self, hexstr):
+        self.settings.accent_override = hexstr
+        theme.apply_accent_override(QApplication.instance(), hexstr)
+
+    # -- Polices -------------------------------------------------------------
+    def _build_font_choice_menu(self, menu, choices, active, slot):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        for value in choices:
+            label = str(value)
+            act = QAction(label, self, checkable=True)
+            act.setChecked(str(active) == label)
+            act.triggered.connect(lambda _=False, v=value: slot(v))
+            group.addAction(act)
+            menu.addAction(act)
+
+    def _set_ui_font(self, family=None, size=None):
+        if family is not None:
+            self.settings.ui_font_family = family
+        if size is not None:
+            self.settings.ui_font_size = size
+        theme.apply_ui_font(QApplication.instance(),
+                            self.settings.ui_font_family,
+                            self.settings.ui_font_size)
+
+    def _set_mono_font(self, family=None, size=None):
+        if family is not None:
+            self.settings.mono_font_family = family
+        if size is not None:
+            self.settings.mono_font_size = size
+        theme.set_mono_font(self.settings.mono_font_family,
+                            self.settings.mono_font_size)
+
+    # -- Position des onglets ------------------------------------------------
+    def _build_tabalign_menu(self, menu):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        active = self.settings.tab_align
+        for label, align in (("À gauche", "left"), ("Au milieu", "center"),
+                             ("À droite", "right")):
+            act = QAction(label, self, checkable=True)
+            act.setChecked(align == active)
+            act.triggered.connect(lambda _=False, a=align: self._set_tab_align(a))
+            group.addAction(act)
+            menu.addAction(act)
+
+    def _apply_tab_align(self, align):
+        # L'alignement de la barre d'onglets se pilote en QSS (left/center/right) ;
+        # la regle fusionne avec le QSS global de l'application.
+        self.tabs.setStyleSheet(
+            f"QTabWidget::tab-bar {{ alignment: {align}; }}")
+
+    def _set_tab_align(self, align):
+        self.settings.tab_align = align
+        self._apply_tab_align(align)
+
+    # -- Opacité -------------------------------------------------------------
+    def _build_opacity_menu(self, menu):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        active = self.settings.opacity
+        for pct in (100, 95, 90, 85, 80, 70):
+            value = pct / 100.0
+            act = QAction(f"{pct} %", self, checkable=True)
+            act.setChecked(abs(value - active) < 1e-6)
+            act.triggered.connect(lambda _=False, v=value: self._set_opacity(v))
+            group.addAction(act)
+            menu.addAction(act)
+
+    def _set_opacity(self, value):
+        self.settings.opacity = value
+        self.setWindowOpacity(value)
+
+    # -- Lignes alternées / barre de statut ----------------------------------
+    def _apply_alt_rows(self, on):
+        for tab in (self.tasks_tab, self.process_tab):
+            tab.set_alternating_rows(on)
+
+    def _set_alt_rows(self, on):
+        self.settings.alt_rows = on
+        self._apply_alt_rows(on)
+
+    def _set_statusbar(self, on):
+        self.settings.show_statusbar = on
+        self.statusBar().setVisible(on)
+
+    def refresh_status_bar(self):
+        """Compose la ligne de statut a partir de l'etat courant de l'app.
+
+        Rafraichie chaque seconde (consoles / running) et poussee par l'onglet
+        Process des qu'il recompte les process Node."""
+        if not self.settings.show_statusbar:
+            return
+        proj = self.tasks_tab.project
+        proj_name = os.path.basename(os.path.normpath(proj)) if proj else None
+        segs = [f"TaskPilot {__version__}",
+                "Projet : " + (proj_name or "aucun")]
+        panels = self.tasks_tab.panels
+        running = sum(1 for p in panels if p.console.is_running())
+        segs.append(f"▶ {running}/{len(panels)} console(s) active(s)"
+                    if panels else "▶ aucune console")
+        count = getattr(self.process_tab, "process_count", None)
+        if count is not None:
+            segs.append(f"☰ {count} process Node")
+        self._status_label.setText("      •      ".join(segs))
 
     def _add(self, menu, text, slot, shortcut=None):
         act = QAction(text, self)
@@ -177,7 +389,7 @@ class MainWindow(QMainWindow):
 
     def _show_about(self):
         QMessageBox.about(self, "À propos", (
-            f"<b>TaskPilot</b> — version {__version__} (POC PySide6)<br><br>"
+            f"<b>TaskPilot</b> — version {__version__}<br><br>"
             "Lanceur de tasks VS Code et gestionnaire de process."))
 
     def _on_tab_change(self, index):

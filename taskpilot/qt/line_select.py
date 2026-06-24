@@ -1,7 +1,6 @@
 """Sélection de lignes à la souris dans une console (poignée de glissement).
 
-Reproduit l'outil de l'UI Tkinter (``taskpilot.ui.line_select``) : une poignée
-discrète « ⠿ » apparaît au survol, à droite de la ligne pointée. On la presse
+Une poignée discrète « ⠿ » apparaît au survol, à droite de la ligne pointée. On la presse
 puis on glisse (haut/bas) pour sélectionner une plage de lignes entières
 (surlignées) ; au relâchement, elles sont copiées dans le presse-papiers.
 Auto-défilement quand on glisse au-delà du bord. La sélection native du texte
@@ -32,7 +31,7 @@ class _Handle(QLabel):
         bg = theme.SURFACE_3 if hover else theme.SURFACE_2
         fg = theme.FG if hover else theme.MUTED
         self.setStyleSheet(
-            f"QLabel {{ background: {bg}; color: {fg}; border-radius: 5px;"
+            f"QLabel {{ background: {bg}; color: {fg}; border-radius: {theme.radius(5)}px;"
             f" padding: 0 4px; font-weight: bold; }}")
 
     def enterEvent(self, _e):

@@ -1,4 +1,4 @@
-"""Themes (palettes) et feuille de style (QSS) du POC Qt.
+"""Themes (palettes) et feuille de style (QSS) de l'interface Qt.
 
 Chaque theme est une ``Palette`` (jeu de tokens de couleur). Le theme actif est
 « installe » dans les attributs de module (``theme.ACCENT``, ``theme.SURFACE``…)
@@ -181,6 +181,18 @@ THEMES = {
         RED="#e87078", RED_HOVER="#f0858c",
         DOT_RUNNING="#4fd067", DOT_IDLE="#69707d", SELECTION="#3a3f47"),
 
+    "Graphene": Palette(
+        name="Graphene",
+        APP_BG="#1e1e1e", SURFACE="#232323", SURFACE_2="#2a2a2a",
+        SURFACE_3="#363636", ALT_ROW="#212121", BORDER="#333333",
+        FG="#d4d4d4", FG_DIM="#a0a0a0", MUTED="#808080",
+        CONSOLE_BG="#1a1a1a", CONSOLE_HEAD="#232323", CONSOLE_PROMPT="#b5cea8",
+        LV_ERROR="#d16969", LV_WARN="#d7ba7d", LV_INFO="#9cdcfe",
+        LV_SUCCESS="#88d169",
+        ACCENT="#808080", ACCENT_HOVER="#9a9a9a", ACCENT_FG="#1e1e1e",
+        RED="#d16969", RED_HOVER="#e64545",
+        DOT_RUNNING="#58cc27", DOT_IDLE="#606060", SELECTION="#404040"),
+
     "Nord polaire": Palette(
         name="Nord polaire",
         APP_BG="#2b303b", SURFACE="#323845", SURFACE_2="#3b4252",
@@ -264,9 +276,178 @@ THEMES = {
         ACCENT="#f08fb0", ACCENT_HOVER="#f4a3c0", ACCENT_FG="#1e0a16",
         RED="#e87078", RED_HOVER="#f0858c",
         DOT_RUNNING="#4fd067", DOT_IDLE="#69707d", SELECTION="#3a3560"),
+
+    "Gruvbox sombre": Palette(
+        name="Gruvbox sombre",
+        APP_BG="#282828", SURFACE="#32302f", SURFACE_2="#3c3836",
+        SURFACE_3="#504945", ALT_ROW="#2f2c2b", BORDER="#504945",
+        FG="#ebdbb2", FG_DIM="#d5c4a1", MUTED="#928374",
+        CONSOLE_BG="#1d2021", CONSOLE_HEAD="#32302f", CONSOLE_PROMPT="#b8bb26",
+        LV_ERROR="#fb4934", LV_WARN="#fabd2f", LV_INFO="#83a598",
+        LV_SUCCESS="#b8bb26",
+        ACCENT="#fabd2f", ACCENT_HOVER="#ffd152", ACCENT_FG="#282828",
+        RED="#fb4934", RED_HOVER="#ff6149",
+        DOT_RUNNING="#b8bb26", DOT_IDLE="#928374", SELECTION="#504945"),
+
+    "Tokyo Night": Palette(
+        name="Tokyo Night",
+        APP_BG="#1a1b26", SURFACE="#1f2335", SURFACE_2="#24283b",
+        SURFACE_3="#2f344d", ALT_ROW="#1d1f2e", BORDER="#2f344d",
+        FG="#c0caf5", FG_DIM="#a9b1d6", MUTED="#565f89",
+        CONSOLE_BG="#16161e", CONSOLE_HEAD="#1f2335", CONSOLE_PROMPT="#9ece6a",
+        LV_ERROR="#f7768e", LV_WARN="#e0af68", LV_INFO="#7aa2f7",
+        LV_SUCCESS="#9ece6a",
+        ACCENT="#7aa2f7", ACCENT_HOVER="#8fb3f9", ACCENT_FG="#16161e",
+        RED="#f7768e", RED_HOVER="#ff8da0",
+        DOT_RUNNING="#9ece6a", DOT_IDLE="#565f89", SELECTION="#283457"),
+
+    "Catppuccin Mocha": Palette(
+        name="Catppuccin Mocha",
+        APP_BG="#1e1e2e", SURFACE="#252535", SURFACE_2="#313244",
+        SURFACE_3="#45475a", ALT_ROW="#232336", BORDER="#45475a",
+        FG="#cdd6f4", FG_DIM="#a6adc8", MUTED="#6c7086",
+        CONSOLE_BG="#181825", CONSOLE_HEAD="#252535", CONSOLE_PROMPT="#a6e3a1",
+        LV_ERROR="#f38ba8", LV_WARN="#f9e2af", LV_INFO="#89b4fa",
+        LV_SUCCESS="#a6e3a1",
+        ACCENT="#cba6f7", ACCENT_HOVER="#d6b9f9", ACCENT_FG="#1e1e2e",
+        RED="#f38ba8", RED_HOVER="#f7a0b8",
+        DOT_RUNNING="#a6e3a1", DOT_IDLE="#6c7086", SELECTION="#3a3a52"),
+
+    "One Dark": Palette(
+        name="One Dark",
+        APP_BG="#282c34", SURFACE="#2c313a", SURFACE_2="#353b45",
+        SURFACE_3="#3e4451", ALT_ROW="#2f343e", BORDER="#3e4451",
+        FG="#abb2bf", FG_DIM="#9aa1ad", MUTED="#5c6370",
+        CONSOLE_BG="#21252b", CONSOLE_HEAD="#2c313a", CONSOLE_PROMPT="#98c379",
+        LV_ERROR="#e06c75", LV_WARN="#e5c07b", LV_INFO="#61afef",
+        LV_SUCCESS="#98c379",
+        ACCENT="#61afef", ACCENT_HOVER="#7abdf2", ACCENT_FG="#1b1d23",
+        RED="#e06c75", RED_HOVER="#e8838b",
+        DOT_RUNNING="#98c379", DOT_IDLE="#5c6370", SELECTION="#3e4451"),
+
+    "Monokai": Palette(
+        name="Monokai",
+        APP_BG="#272822", SURFACE="#2d2e27", SURFACE_2="#383830",
+        SURFACE_3="#49483e", ALT_ROW="#31322b", BORDER="#49483e",
+        FG="#f8f8f2", FG_DIM="#cfd0c2", MUTED="#75715e",
+        CONSOLE_BG="#1e1f1a", CONSOLE_HEAD="#2d2e27", CONSOLE_PROMPT="#a6e22e",
+        LV_ERROR="#f92672", LV_WARN="#e6db74", LV_INFO="#66d9ef",
+        LV_SUCCESS="#a6e22e",
+        ACCENT="#66d9ef", ACCENT_HOVER="#82e0f2", ACCENT_FG="#102825",
+        RED="#f92672", RED_HOVER="#fb4a8c",
+        DOT_RUNNING="#a6e22e", DOT_IDLE="#75715e", SELECTION="#49483e"),
+
+    "Rosé Pine": Palette(
+        name="Rosé Pine",
+        APP_BG="#191724", SURFACE="#1f1d2e", SURFACE_2="#26233a",
+        SURFACE_3="#393552", ALT_ROW="#211f30", BORDER="#393552",
+        FG="#e0def4", FG_DIM="#908caa", MUTED="#6e6a86",
+        CONSOLE_BG="#15131f", CONSOLE_HEAD="#1f1d2e", CONSOLE_PROMPT="#9ccfd8",
+        LV_ERROR="#eb6f92", LV_WARN="#f6c177", LV_INFO="#c4a7e7",
+        LV_SUCCESS="#9ccfd8",
+        ACCENT="#c4a7e7", ACCENT_HOVER="#d0b8ec", ACCENT_FG="#1f1d2e",
+        RED="#eb6f92", RED_HOVER="#f084a3",
+        DOT_RUNNING="#9ccfd8", DOT_IDLE="#6e6a86", SELECTION="#393552"),
+
+    "Ayu sombre": Palette(
+        name="Ayu sombre",
+        APP_BG="#0d1017", SURFACE="#131721", SURFACE_2="#1c212c",
+        SURFACE_3="#273340", ALT_ROW="#11151e", BORDER="#1c212c",
+        FG="#bfbdb6", FG_DIM="#9b9892", MUTED="#565b66",
+        CONSOLE_BG="#090c12", CONSOLE_HEAD="#131721", CONSOLE_PROMPT="#aad94c",
+        LV_ERROR="#f07178", LV_WARN="#ffb454", LV_INFO="#59c2ff",
+        LV_SUCCESS="#aad94c",
+        ACCENT="#e6b450", ACCENT_HOVER="#f0c265", ACCENT_FG="#0d1017",
+        RED="#f07178", RED_HOVER="#f78a90",
+        DOT_RUNNING="#aad94c", DOT_IDLE="#565b66", SELECTION="#1f2a35"),
+
+    "GitHub sombre": Palette(
+        name="GitHub sombre",
+        APP_BG="#0d1117", SURFACE="#161b22", SURFACE_2="#21262d",
+        SURFACE_3="#30363d", ALT_ROW="#11161d", BORDER="#30363d",
+        FG="#c9d1d9", FG_DIM="#adbac7", MUTED="#8b949e",
+        CONSOLE_BG="#010409", CONSOLE_HEAD="#161b22", CONSOLE_PROMPT="#3fb950",
+        LV_ERROR="#f85149", LV_WARN="#d29922", LV_INFO="#58a6ff",
+        LV_SUCCESS="#3fb950",
+        ACCENT="#58a6ff", ACCENT_HOVER="#79b8ff", ACCENT_FG="#0d1117",
+        RED="#f85149", RED_HOVER="#ff6a5f",
+        DOT_RUNNING="#3fb950", DOT_IDLE="#8b949e", SELECTION="#163356"),
+
+    "Everforest": Palette(
+        name="Everforest",
+        APP_BG="#2d353b", SURFACE="#343f44", SURFACE_2="#3d484d",
+        SURFACE_3="#475258", ALT_ROW="#313a40", BORDER="#475258",
+        FG="#d3c6aa", FG_DIM="#bdc3af", MUTED="#859289",
+        CONSOLE_BG="#232a2e", CONSOLE_HEAD="#343f44", CONSOLE_PROMPT="#a7c080",
+        LV_ERROR="#e67e80", LV_WARN="#dbbc7f", LV_INFO="#7fbbb3",
+        LV_SUCCESS="#a7c080",
+        ACCENT="#a7c080", ACCENT_HOVER="#b6cc92", ACCENT_FG="#2d353b",
+        RED="#e67e80", RED_HOVER="#ec9395",
+        DOT_RUNNING="#a7c080", DOT_IDLE="#859289", SELECTION="#475258"),
+
+    "Night Owl": Palette(
+        name="Night Owl",
+        APP_BG="#011627", SURFACE="#0b2942", SURFACE_2="#13344f",
+        SURFACE_3="#1d3b53", ALT_ROW="#082035", BORDER="#1d3b53",
+        FG="#d6deeb", FG_DIM="#aeb9d0", MUTED="#637777",
+        CONSOLE_BG="#010f1c", CONSOLE_HEAD="#0b2942", CONSOLE_PROMPT="#22da6e",
+        LV_ERROR="#ef5350", LV_WARN="#ecc48d", LV_INFO="#82aaff",
+        LV_SUCCESS="#22da6e",
+        ACCENT="#82aaff", ACCENT_HOVER="#9bbcff", ACCENT_FG="#011627",
+        RED="#ef5350", RED_HOVER="#f56b68",
+        DOT_RUNNING="#22da6e", DOT_IDLE="#637777", SELECTION="#1d3b53"),
+
+    "Palenight": Palette(
+        name="Palenight",
+        APP_BG="#292d3e", SURFACE="#2f3447", SURFACE_2="#3a3f58",
+        SURFACE_3="#444a66", ALT_ROW="#2d3142", BORDER="#444a66",
+        FG="#a6accd", FG_DIM="#8c92b3", MUTED="#676e95",
+        CONSOLE_BG="#21222f", CONSOLE_HEAD="#2f3447", CONSOLE_PROMPT="#c3e88d",
+        LV_ERROR="#f07178", LV_WARN="#ffcb6b", LV_INFO="#82aaff",
+        LV_SUCCESS="#c3e88d",
+        ACCENT="#82aaff", ACCENT_HOVER="#9bbcff", ACCENT_FG="#1b1d29",
+        RED="#f07178", RED_HOVER="#f78a90",
+        DOT_RUNNING="#c3e88d", DOT_IDLE="#676e95", SELECTION="#3a3f58"),
 }
 
 DEFAULT_THEME = "Ardoise indigo"
+
+#: Facteur d'arrondi global (0 = carre, 1 = design d'origine, ~1.8 = tres rond).
+#: Applique par ``radius()`` a tous les rayons du QSS et des styles inline.
+RADIUS = 1.0
+RADIUS_MIN, RADIUS_MAX = 0.0, 2.0
+
+#: Presets proposes dans le menu « Options › Arrondis » (libelle -> facteur).
+RADIUS_PRESETS = {
+    "Carré": 0.0,
+    "Léger": 0.5,
+    "Normal": 1.0,
+    "Arrondi": 1.4,
+    "Très arrondi": 1.8,
+}
+
+#: Densite : facteur d'espacement applique aux paddings du QSS (compacite).
+DENSITY = 1.0
+DENSITY_MIN, DENSITY_MAX = 0.7, 1.5
+DENSITY_PRESETS = {"Compact": 0.82, "Normal": 1.0, "Confortable": 1.25}
+
+#: Police d'interface (utilisee par le QSS). Reglable via les options.
+UI_FONT = "Segoe UI"
+UI_FONT_SIZE = 13
+
+#: Surcouche d'accent personnalise (hex) ou ``None`` pour suivre le theme.
+ACCENT_OVERRIDE = None
+
+#: Choix proposes dans les menus de police / taille.
+UI_FONT_CHOICES = ("Segoe UI", "Inter", "Roboto", "Calibri", "Verdana", "Tahoma")
+MONO_FONT_CHOICES = ("Cascadia Mono, Consolas", "Cascadia Code", "Consolas",
+                     "JetBrains Mono", "Fira Code", "Courier New")
+UI_FONT_SIZES = (11, 12, 13, 14, 15, 16)
+MONO_FONT_SIZES = (9, 10, 11, 12, 13, 14)
+
+#: Palette d'accents proposes (en plus du choix libre par QColorDialog).
+ACCENT_CHOICES = ("#7c8cf8", "#3fb6b6", "#e0a64e", "#4cc98a", "#3d8bf0",
+                  "#a771ee", "#e0556b", "#e87bb0", "#58a6ff", "#f7768e")
 
 # -- Constantes independantes du theme --------------------------------------
 GROUP_COLORS = ("#6fa8d6", "#d6b36a", "#c98fd0", "#7bc0c0", "#d07a7a", "#9ec46a",
@@ -296,6 +477,7 @@ _ANSI_BASE = {
 # ---------------------------------------------------------------------------
 class _Notifier(QObject):
     changed = Signal()
+    fonts_changed = Signal()  # police monospace des consoles modifiee
 
 
 notifier = _Notifier()
@@ -304,6 +486,39 @@ notifier = _Notifier()
 # ---------------------------------------------------------------------------
 # Helpers couleur
 # ---------------------------------------------------------------------------
+def radius(px):
+    """Rayon ``px`` (rayon « de base » du design) mis a l'echelle par ``RADIUS``.
+
+    ``RADIUS`` est un facteur global (0 = coins carres, 1 = design d'origine,
+    >1 = plus arrondi). Utilise par le QSS *et* par les styles « inline » des
+    widgets pour rester coherent quand l'utilisateur change l'arrondi a chaud.
+    """
+    return max(0, round(px * RADIUS))
+
+
+def pad(px):
+    """Espacement ``px`` de base mis a l'echelle par la densite ``DENSITY``."""
+    return max(0, round(px * DENSITY))
+
+
+def _contrast_fg(hexstr):
+    """Couleur de texte lisible (sombre/claire) a poser sur ``hexstr``."""
+    h = hexstr.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    return "#12151b" if lum > 150 else "#f5f7fb"
+
+
+def _effective_palette(pal):
+    """Renvoie ``pal`` eventuellement modifie par l'accent personnalise."""
+    if not ACCENT_OVERRIDE:
+        return pal
+    from dataclasses import replace
+    acc = ACCENT_OVERRIDE
+    return replace(pal, ACCENT=acc, ACCENT_HOVER=_lighten(acc, 0.14),
+                   ACCENT_FG=_contrast_fg(acc))
+
+
 def _lighten(hexstr, amt):
     """Eclaircit une couleur ``#rrggbb`` vers le blanc (``amt`` dans [0,1])."""
     h = hexstr.lstrip("#")
@@ -335,19 +550,21 @@ def build_qss(pal):
     scroll = SURFACE_3
     scroll_hover = _lighten(SURFACE_3, 0.18)
     check_hover = _lighten(SURFACE_3, 0.12)
+    r = radius  # rayons mis a l'echelle par le facteur global RADIUS
+    d = pad     # espacements mis a l'echelle par la densite DENSITY
     return f"""
-* {{ font-family: "Segoe UI"; font-size: 13px; color: {FG}; }}
+* {{ font-family: "{UI_FONT}"; font-size: {UI_FONT_SIZE}px; color: {FG}; }}
 QMainWindow, QWidget {{ background: {APP_BG}; }}
 QToolTip {{
     background: {SURFACE_3}; color: {FG};
-    border: none; border-radius: 7px; padding: 6px 9px;
+    border: none; border-radius: {r(7)}px; padding: {d(6)}px {d(9)}px;
 }}
 
-QMenuBar {{ background: {APP_BG}; color: {FG_DIM}; padding: 4px 6px; }}
-QMenuBar::item {{ padding: 6px 13px; border-radius: 7px; background: transparent; }}
+QMenuBar {{ background: {APP_BG}; color: {FG_DIM}; padding: {d(4)}px 6px; }}
+QMenuBar::item {{ padding: {d(6)}px {d(13)}px; border-radius: {r(7)}px; background: transparent; }}
 QMenuBar::item:selected {{ background: {SURFACE_2}; color: {FG}; }}
-QMenu {{ background: {SURFACE_2}; border: none; border-radius: 9px; padding: 4px; }}
-QMenu::item {{ padding: 5px 22px 5px 18px; border-radius: 6px; }}
+QMenu {{ background: {SURFACE_2}; border: none; border-radius: {r(9)}px; padding: 4px; }}
+QMenu::item {{ padding: {d(5)}px 22px {d(5)}px 18px; border-radius: {r(6)}px; }}
 QMenu::item:selected {{ background: {ACCENT}; color: {ACCENT_FG}; }}
 QMenu::item:disabled {{ color: {MUTED}; }}
 QMenu::separator {{ height: 1px; background: {SURFACE_3}; margin: 4px 8px; }}
@@ -357,21 +574,21 @@ QTabWidget::pane {{ border: none; background: {SURFACE}; }}
 QTabBar {{ qproperty-drawBase: 0; background: transparent; }}
 QTabBar::tab {{
     background: transparent; color: {MUTED};
-    padding: 6px 15px; margin-right: 3px; border: none;
-    border-top-left-radius: 9px; border-top-right-radius: 9px;
+    padding: {d(6)}px {d(15)}px; margin-right: 3px; border: none;
+    border-top-left-radius: {r(9)}px; border-top-right-radius: {r(9)}px;
 }}
 QTabBar::tab:hover {{ color: {FG}; background: {SURFACE}; }}
 QTabBar::tab:selected {{ background: {SURFACE}; color: {FG}; border-top: 2px solid {ACCENT}; }}
 
 QTabWidget#consoleTabs QTabBar::tab {{
-    padding: 5px 11px; margin-right: 2px; font-size: 12px;
-    border-top-left-radius: 8px; border-top-right-radius: 8px;
+    padding: {d(5)}px {d(11)}px; margin-right: 2px; font-size: {max(9, UI_FONT_SIZE - 1)}px;
+    border-top-left-radius: {r(8)}px; border-top-right-radius: {r(8)}px;
 }}
 QTabWidget#consoleTabs QTabBar::tab:selected {{ border-top: 2px solid {ACCENT}; }}
 
 QPushButton {{
-    background: {SURFACE_2}; border: none; border-radius: 8px;
-    padding: 6px 13px; color: {FG};
+    background: {SURFACE_2}; border: none; border-radius: {r(8)}px;
+    padding: {d(6)}px {d(13)}px; color: {FG};
 }}
 QPushButton:hover {{ background: {SURFACE_3}; }}
 QPushButton:pressed {{ background: {SURFACE}; }}
@@ -385,27 +602,27 @@ QPushButton[danger="true"]:disabled {{ background: {SURFACE}; color: {MUTED}; }}
 
 QComboBox, QLineEdit {{
     background: {SURFACE_2}; border: 1px solid transparent;
-    border-radius: 8px; padding: 6px 11px; selection-background-color: {ACCENT};
+    border-radius: {r(8)}px; padding: {d(6)}px {d(11)}px; selection-background-color: {ACCENT};
 }}
 QComboBox:hover, QLineEdit:hover {{ background: {SURFACE_3}; }}
 QComboBox:focus, QLineEdit:focus {{ border: 1px solid {ACCENT}; }}
 QComboBox::drop-down {{ border: none; width: 26px; }}
 QComboBox::down-arrow {{ width: 11px; height: 11px; }}
 QComboBox QAbstractItemView {{
-    background: {SURFACE_2}; border: none; border-radius: 9px; padding: 5px;
+    background: {SURFACE_2}; border: none; border-radius: {r(9)}px; padding: 5px;
     selection-background-color: {ACCENT}; selection-color: {ACCENT_FG}; outline: 0;
 }}
 
 /* Carte arrondie enveloppant la liste des tasks (coins ronds sans encoche :
    c'est la carte qui porte le rayon, l'arbre est en retrait dedans). */
-QFrame#taskCard {{ background: {SURFACE}; border-radius: 12px; }}
+QFrame#taskCard {{ background: {SURFACE}; border-radius: {r(12)}px; }}
 
 QTreeWidget, QTreeView, QListWidget {{
     background: {SURFACE}; border: none;
     alternate-background-color: {ALT_ROW}; outline: 0; show-decoration-selected: 1;
 }}
 QTreeView::item, QTreeWidget::item, QListWidget::item {{
-    padding: 5px 3px; border: none; border-radius: 6px;
+    padding: {d(5)}px 3px; border: none; border-radius: {r(6)}px;
 }}
 QTreeView::item:hover, QTreeWidget::item:hover, QListWidget::item:hover {{ background: {SURFACE_2}; }}
 QTreeView::item:selected, QTreeWidget::item:selected, QListWidget::item:selected {{
@@ -413,7 +630,7 @@ QTreeView::item:selected, QTreeWidget::item:selected, QListWidget::item:selected
 }}
 QHeaderView::section {{
     background: {SURFACE}; color: {MUTED};
-    padding: 9px 10px; border: none; font-weight: 600;
+    padding: {d(9)}px {d(10)}px; border: none; font-weight: 600;
 }}
 QHeaderView::section:hover {{ color: {FG}; }}
 
@@ -424,16 +641,16 @@ QPlainTextEdit {{
 
 QCheckBox {{ spacing: 8px; padding: 3px; }}
 QCheckBox::indicator {{
-    width: 15px; height: 15px; border-radius: 5px; border: none; background: {SURFACE_3};
+    width: 15px; height: 15px; border-radius: {r(5)}px; border: none; background: {SURFACE_3};
 }}
 QCheckBox::indicator:hover {{ background: {check_hover}; }}
 QCheckBox::indicator:checked {{ background: {ACCENT}; }}
 
 QScrollBar:vertical {{ background: transparent; width: 13px; margin: 3px; }}
-QScrollBar::handle:vertical {{ background: {scroll}; border-radius: 5px; min-height: 32px; }}
+QScrollBar::handle:vertical {{ background: {scroll}; border-radius: {r(5)}px; min-height: 32px; }}
 QScrollBar::handle:vertical:hover {{ background: {scroll_hover}; }}
 QScrollBar:horizontal {{ background: transparent; height: 13px; margin: 3px; }}
-QScrollBar::handle:horizontal {{ background: {scroll}; border-radius: 5px; min-width: 32px; }}
+QScrollBar::handle:horizontal {{ background: {scroll}; border-radius: {r(5)}px; min-width: 32px; }}
 QScrollBar::handle:horizontal:hover {{ background: {scroll_hover}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
@@ -473,18 +690,21 @@ def build_palette(pal=None):
 # Installation du theme actif (met a jour les attributs de module + QSS)
 # ---------------------------------------------------------------------------
 def _install(pal):
-    """Recopie les tokens de ``pal`` dans les attributs de module + alias + QSS."""
+    """Installe ``pal`` (theme de base) ; l'accent personnalise est applique
+    par-dessus. Met a jour les attributs de module + alias + QSS."""
     g = globals()
+    g["_base_pal"] = pal              # theme nu, re-utilise si l'accent change
+    eff = _effective_palette(pal)     # avec l'accent personnalise eventuel
     for f in fields(Palette):
         if f.name != "name":
-            g[f.name] = getattr(pal, f.name)
-    g["BG"] = pal.APP_BG
-    g["BG_ALT"] = pal.SURFACE
-    g["HEAD"] = pal.SURFACE_2
-    g["CONSOLE_BORDER"] = pal.BORDER
-    g["ANSI_COLORS"] = ansi_colors(pal)
-    g["QSS"] = build_qss(pal)
-    g["current"] = pal
+            g[f.name] = getattr(eff, f.name)
+    g["BG"] = eff.APP_BG
+    g["BG_ALT"] = eff.SURFACE
+    g["HEAD"] = eff.SURFACE_2
+    g["CONSOLE_BORDER"] = eff.BORDER
+    g["ANSI_COLORS"] = ansi_colors(eff)
+    g["QSS"] = build_qss(eff)
+    g["current"] = eff
 
 
 def set_theme(name):
@@ -502,6 +722,87 @@ def apply_theme(app, name):
     notifier.changed.emit()
 
 
+def set_radius(scale):
+    """Fixe le facteur d'arrondi global (clampe) et reconstruit le QSS courant."""
+    global RADIUS
+    RADIUS = min(RADIUS_MAX, max(RADIUS_MIN, float(scale)))
+    if current is not None:
+        globals()["QSS"] = build_qss(current)
+    return RADIUS
+
+
+def apply_radius(app, scale):
+    """Applique un nouvel arrondi a une ``QApplication`` (live-switch)."""
+    set_radius(scale)
+    app.setStyleSheet(QSS)
+    notifier.changed.emit()
+
+
+def _refresh_qss():
+    """Reconstruit le QSS global a partir du theme effectif courant."""
+    if current is not None:
+        globals()["QSS"] = build_qss(current)
+
+
+def set_density(scale):
+    """Fixe la densite (compacite) globale, clampee, et reconstruit le QSS."""
+    global DENSITY
+    DENSITY = min(DENSITY_MAX, max(DENSITY_MIN, float(scale)))
+    _refresh_qss()
+    return DENSITY
+
+
+def apply_density(app, scale):
+    """Applique une nouvelle densite a une ``QApplication`` (live-switch)."""
+    set_density(scale)
+    app.setStyleSheet(QSS)
+    notifier.changed.emit()
+
+
+def set_ui_font(family=None, size=None):
+    """Fixe la police d'interface (QSS) et reconstruit le QSS."""
+    global UI_FONT, UI_FONT_SIZE
+    if family:
+        UI_FONT = family
+    if size:
+        UI_FONT_SIZE = int(size)
+    _refresh_qss()
+
+
+def apply_ui_font(app, family=None, size=None):
+    """Applique la police d'interface a une ``QApplication`` (live-switch)."""
+    set_ui_font(family, size)
+    app.setStyleSheet(QSS)
+    notifier.changed.emit()
+
+
+def set_mono_font(family=None, size=None):
+    """Fixe la police monospace des consoles et notifie les vues concernees."""
+    global MONO_FAMILY, MONO_SIZE
+    if family:
+        MONO_FAMILY = family
+    if size:
+        MONO_SIZE = int(size)
+    notifier.fonts_changed.emit()
+
+
+def set_accent_override(hexstr):
+    """Force l'accent (hex) ou suit le theme si ``hexstr`` est vide ; reinstalle."""
+    global ACCENT_OVERRIDE
+    ACCENT_OVERRIDE = (hexstr or "").strip() or None
+    if _base_pal is not None:
+        _install(_base_pal)
+
+
+def apply_accent_override(app, hexstr):
+    """Applique un accent personnalise a une ``QApplication`` (live-switch)."""
+    set_accent_override(hexstr)
+    app.setPalette(build_palette())
+    app.setStyleSheet(QSS)
+    notifier.changed.emit()
+
+
 # Theme par defaut installe au chargement du module.
 current = None
+_base_pal = None
 set_theme(DEFAULT_THEME)

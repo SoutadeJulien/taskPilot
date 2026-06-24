@@ -1,9 +1,8 @@
 """Onglet Tasks (Qt) : selection du projet, lancement, consoles integrees.
 
-Reprend fidelement la logique de ``taskpilot.ui.tasks_tab`` mais en PySide6 :
 QSplitter + QTreeWidget (liste des tasks) + QTabWidget (consoles fermables).
-Le drainage des files de sortie se fait par un unique ``QTimer`` (equivalent du
-``after`` Tk), avec accelaration quand il reste du backlog.
+Le drainage des files de sortie se fait par un unique ``QTimer``, avec
+accelaration quand il reste du backlog.
 """
 
 import os
@@ -117,6 +116,7 @@ class TasksTab(QWidget):
         self._tree.setColumnCount(3)
         self._tree.setHeaderLabels(["Task", "Type", ""])
         self._tree.setRootIsDecorated(True)
+        self._tree.setAlternatingRowColors(self.settings.alt_rows)
         header = self._tree.header()
         header.setStretchLastSection(False)
         from PySide6.QtWidgets import QHeaderView
@@ -148,6 +148,9 @@ class TasksTab(QWidget):
         # poignee du splitter ajoutant deja un espace).
         wrap.setContentsMargins(0, 0, 4, 0)
         return wrap
+
+    def set_alternating_rows(self, on):
+        self._tree.setAlternatingRowColors(bool(on))
 
     def _build_consoles(self):
         wrap = QWidget()
@@ -358,7 +361,7 @@ class TasksTab(QWidget):
         color = self._project_color() or theme.SURFACE_2
         self._swatch.setStyleSheet(
             f"QPushButton {{ background: {color}; border: 1px solid "
-            f"{theme.BORDER}; border-radius: 6px; }}")
+            f"{theme.BORDER}; border-radius: {theme.radius(6)}px; }}")
 
     def _apply_label_styles(self):
         """(Re)applique les styles inline des libelles (suit le theme actif)."""
@@ -767,7 +770,39 @@ class TasksTab(QWidget):
                      else "☆  Ajouter aux favoris")
         fav = menu.addAction(fav_label)
         fav.triggered.connect(lambda: self._toggle_favorite(label))
+        if is_group_task(self.tasks_by_label.get(label, {})):
+            menu.addSeparator()
+            self._fill_group_color_menu(menu.addMenu("Couleur du groupe"), label)
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    def _fill_group_color_menu(self, menu, group):
+        current = self._group_colors.get(group)
+        auto = menu.addAction("Auto (par défaut)")
+        auto.triggered.connect(lambda: self._set_group_color_manual(group, ""))
+        menu.addSeparator()
+        for c in theme.GROUP_COLORS:
+            act = menu.addAction(("✓ " if c == current else "    ") + c)
+            act.setIcon(_swatch_icon(c))
+            act.triggered.connect(
+                lambda _=False, col=c: self._set_group_color_manual(group, col))
+
+    def _set_group_color_manual(self, group, color):
+        """Force (ou remet en auto) la couleur d'un groupe et recolore ses
+        consoles ouvertes."""
+        old = self._group_colors.get(group)
+        if color:
+            self._group_colors[group] = color
+        else:
+            self._group_colors.pop(group, None)
+            color = self._group_color(group)  # reattribue une couleur auto
+        self.settings.set_group_color(group, color)
+        for panel in self.panels:
+            if getattr(panel, "group_color", None) != old:
+                continue
+            panel.group_color = color
+            pcol = self.settings.get_project_color(
+                getattr(panel, "project", "")) or None
+            self._color_tab(panel, pcol or color)
 
     def _toggle_favorite(self, label):
         if not self.project:

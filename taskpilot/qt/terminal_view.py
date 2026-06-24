@@ -1,7 +1,7 @@
 """Terminal interactif : emulateur VT (``pyte``) rendu dans un QPlainTextEdit.
 
-Equivalent Qt de ``taskpilot.ui.terminal_panel``. Recoit le flux brut d'un
-``PtyConsole``, le fait analyser par un ecran ``pyte`` (grille de caracteres +
+Recoit le flux brut d'un ``PtyConsole``, le fait analyser par un ecran
+``pyte`` (grille de caracteres +
 attributs) et le rend. Les frappes sont retransmises au pseudo-terminal avec
 les bonnes sequences VT, ce qui fait tourner les programmes plein ecran
 (``claude``, REPL...).
@@ -104,9 +104,21 @@ class TerminalView(QWidget):
         self.edit = _TermEdit(self)
         layout.addWidget(self.edit, 1)
         theme.notifier.changed.connect(self._on_theme)
+        theme.notifier.fonts_changed.connect(self._on_fonts)
 
     def _on_theme(self):
         """Au changement de theme : recolore tout l'ecran (cache invalide)."""
+        self._formats.clear()
+        self._render()
+
+    def _on_fonts(self):
+        """Police monospace modifiee : reapplique (remet le zoom a zero)."""
+        self._base_size = theme.MONO_SIZE
+        font = self.edit.font()
+        font.setFamily(theme.MONO_FAMILY.split(",")[0].strip())
+        font.setPointSize(self._base_size)
+        self.edit.setFont(font)
+        self._resync_size()
         self._formats.clear()
         self._render()
 
@@ -213,6 +225,7 @@ class TerminalView(QWidget):
         """Coupe les abonnements au thème (à appeler avant destruction)."""
         try:
             theme.notifier.changed.disconnect(self._on_theme)
+            theme.notifier.fonts_changed.disconnect(self._on_fonts)
         except (RuntimeError, TypeError):
             pass
         self.header.dispose()

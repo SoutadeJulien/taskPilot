@@ -189,13 +189,139 @@ class Config:
 
     @property
     def theme(self):
-        """Nom du theme d'interface Qt actif (POC PySide6)."""
+        """Nom du theme d'interface Qt actif."""
         value = self._data.get("theme", "")
         return value if isinstance(value, str) and value else "Ardoise indigo"
 
     @theme.setter
     def theme(self, value):
         self._data["theme"] = (value or "").strip()
+        self._save()
+
+    @property
+    def radius(self):
+        """Facteur d'arrondi des bordures (0 = carré, 1 = défaut, ~1.8 = rond)."""
+        value = self._data.get("radius", 1.0)
+        try:
+            return min(2.0, max(0.0, float(value)))
+        except (TypeError, ValueError):
+            return 1.0
+
+    @radius.setter
+    def radius(self, value):
+        try:
+            self._data["radius"] = min(2.0, max(0.0, float(value)))
+        except (TypeError, ValueError):
+            self._data["radius"] = 1.0
+        self._save()
+
+    def _get_float(self, key, default, lo, hi):
+        try:
+            return min(hi, max(lo, float(self._data.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+
+    def _set_float(self, key, value, default, lo, hi):
+        try:
+            self._data[key] = min(hi, max(lo, float(value)))
+        except (TypeError, ValueError):
+            self._data[key] = default
+        self._save()
+
+    @property
+    def density(self):
+        """Densité d'espacement de l'UI (0.7 compact … 1.5 confortable)."""
+        return self._get_float("density", 1.0, 0.7, 1.5)
+
+    @density.setter
+    def density(self, value):
+        self._set_float("density", value, 1.0, 0.7, 1.5)
+
+    @property
+    def ui_font_family(self):
+        v = self._data.get("ui_font_family", "")
+        return v if isinstance(v, str) and v else "Segoe UI"
+
+    @ui_font_family.setter
+    def ui_font_family(self, value):
+        self._data["ui_font_family"] = (value or "").strip()
+        self._save()
+
+    @property
+    def ui_font_size(self):
+        return int(self._get_float("ui_font_size", 13, 9, 22))
+
+    @ui_font_size.setter
+    def ui_font_size(self, value):
+        self._set_float("ui_font_size", value, 13, 9, 22)
+
+    @property
+    def mono_font_family(self):
+        v = self._data.get("mono_font_family", "")
+        return v if isinstance(v, str) and v else "Cascadia Mono, Consolas"
+
+    @mono_font_family.setter
+    def mono_font_family(self, value):
+        self._data["mono_font_family"] = (value or "").strip()
+        self._save()
+
+    @property
+    def mono_font_size(self):
+        return int(self._get_float("mono_font_size", 10, 7, 22))
+
+    @mono_font_size.setter
+    def mono_font_size(self, value):
+        self._set_float("mono_font_size", value, 10, 7, 22)
+
+    @property
+    def accent_override(self):
+        """Couleur d'accent personnalisée (hex) ou "" pour suivre le thème."""
+        v = self._data.get("accent_override", "")
+        return v if isinstance(v, str) else ""
+
+    @accent_override.setter
+    def accent_override(self, value):
+        self._data["accent_override"] = (value or "").strip()
+        self._save()
+
+    @property
+    def opacity(self):
+        """Opacité de la fenêtre (0.5 … 1.0)."""
+        return self._get_float("opacity", 1.0, 0.5, 1.0)
+
+    @opacity.setter
+    def opacity(self, value):
+        self._set_float("opacity", value, 1.0, 0.5, 1.0)
+
+    @property
+    def alt_rows(self):
+        """Lignes alternées dans les arbres/listes."""
+        return bool(self._data.get("alt_rows", True))
+
+    @alt_rows.setter
+    def alt_rows(self, value):
+        self._data["alt_rows"] = bool(value)
+        self._save()
+
+    @property
+    def tab_align(self):
+        """Alignement des onglets principaux : left / center / right."""
+        v = self._data.get("tab_align", "left")
+        return v if v in ("left", "center", "right") else "left"
+
+    @tab_align.setter
+    def tab_align(self, value):
+        self._data["tab_align"] = value if value in (
+            "left", "center", "right") else "left"
+        self._save()
+
+    @property
+    def show_statusbar(self):
+        return bool(self._data.get("show_statusbar", True))
+
+    @show_statusbar.setter
+    def show_statusbar(self, value):
+        self._data["show_statusbar"] = bool(value)
         self._save()
 
     @property
