@@ -448,7 +448,8 @@ class TasksTab(QWidget):
                      project_color=None):
         log_path = logs.new_log_path(leaf.label) if self.settings.save_logs else None
         console = TaskConsole(leaf.label, leaf.spec, log_path=log_path)
-        panel = ConsoleView(console, on_restart=self._restart_panel)
+        panel = ConsoleView(console, on_restart=self._restart_panel,
+                            settings=self.settings)
         self._tag_panel(panel, project, group_color, project_color)
         title = (leaf.label if len(leaf.label) <= MAX_TAB_TITLE
                  else leaf.label[:MAX_TAB_TITLE - 1] + "…")
@@ -582,7 +583,8 @@ class TasksTab(QWidget):
                                display=display)
             console = TaskConsole(display, spec, log_path=log_path,
                                   interactive=True)
-            panel = ConsoleView(console, on_restart=self._restart_panel)
+            panel = ConsoleView(console, on_restart=self._restart_panel,
+                                settings=self.settings)
         self._tag_panel(panel, project, None, project_color)
         self._add_panel(panel, display, f"Console {display}", project_color)
         console.start()

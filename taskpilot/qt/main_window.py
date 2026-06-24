@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QVBoxLayout, QWidget)
 
 from taskpilot import __version__
-from taskpilot.core import logs
+from taskpilot.core import editors, logs
 from taskpilot.qt import theme
 from taskpilot.qt.process_tab import ProcessTab
 from taskpilot.qt.tasks_tab import TasksTab
@@ -139,6 +139,8 @@ class MainWindow(QMainWindow):
         self._statusbar_act = self._add_check(
             opt, "Barre de statut", self.settings.show_statusbar,
             self._set_statusbar)
+        opt.addSeparator()
+        self._build_editor_menu(opt.addMenu("Éditeur de code"))
         opt.addSeparator()
         self._confirm_act = self._add_check(
             opt, "Confirmer les actions groupées", self.settings.confirm_bulk,
@@ -299,6 +301,25 @@ class MainWindow(QMainWindow):
         self.settings.opacity = value
         self.setWindowOpacity(value)
 
+    # -- Editeur de code (Ctrl+clic sur un chemin) ---------------------------
+    def _build_editor_menu(self, menu):
+        menu.setToolTipsVisible(True)
+        info = menu.addAction("Ctrl+clic sur un chemin dans une console")
+        info.setEnabled(False)
+        menu.addSeparator()
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        active = editors.valid_key(self.settings.editor)
+        for key, spec in editors.EDITORS.items():
+            act = QAction(spec["name"], self, checkable=True)
+            act.setChecked(key == active)
+            act.triggered.connect(lambda _=False, k=key: self._set_editor(k))
+            group.addAction(act)
+            menu.addAction(act)
+
+    def _set_editor(self, key):
+        self.settings.editor = key
+
     # -- Lignes alternées / barre de statut ----------------------------------
     def _apply_alt_rows(self, on):
         for tab in (self.tasks_tab, self.process_tab):
@@ -385,6 +406,7 @@ class MainWindow(QMainWindow):
             "Ctrl + molette\tZoomer la console\n"
             "Ctrl + + / Ctrl + -\tZoom avant / arrière\n"
             "Ctrl + 0\t\tRéinitialiser le zoom\n"
+            "Ctrl + clic\tOuvrir le fichier pointé dans l'éditeur\n"
             "Ctrl + Q\t\tQuitter"))
 
     def _show_about(self):

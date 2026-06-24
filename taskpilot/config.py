@@ -325,6 +325,17 @@ class Config:
         self._save()
 
     @property
+    def editor(self):
+        """Editeur ouvert au clic sur un chemin de fichier (vscode/cursor/zed)."""
+        v = self._data.get("editor", "")
+        return v if isinstance(v, str) and v else "vscode"
+
+    @editor.setter
+    def editor(self, value):
+        self._data["editor"] = (value or "").strip()
+        self._save()
+
+    @property
     def log_dir(self):
         """Dossier où enregistrer les logs (vide => dossier temporaire par défaut)."""
         value = self._data.get("log_dir", "")
