@@ -23,12 +23,17 @@ EDITORS = {
 }
 DEFAULT_EDITOR = "vscode"
 
-#: Reference de fichier dans une ligne de console : un chemin (avec un segment
-#: de repertoire, ou un simple ``nom.ext``) suivi d'un ``:ligne[:colonne]``
-#: optionnel. L'extension obligatoire limite fortement les faux positifs.
+#: Reference de fichier/dossier dans une ligne de console, suivie d'un
+#: ``:ligne[:colonne]`` optionnel. Trois formes :
+#:  1. chemin absolu (lettre de lecteur) — fichier *ou* dossier, sans
+#:     extension requise (un chemin absolu est rarement un faux positif) ;
+#:  2. chemin relatif avec dossiers et extension ;
+#:  3. simple ``nom.ext``.
+#: L'extension obligatoire des formes relatives limite les faux positifs.
 PATH_RE = re.compile(
     r"(?P<path>"
-    r"(?:[A-Za-z]:[\\/])?(?:[\w.+\-]+[\\/])+[\w.+\-]+\.[A-Za-z][\w]*"
+    r"[A-Za-z]:[\\/](?:[\w.+\-]+[\\/])*[\w.+\-]+"
+    r"|(?:[\w.+\-]+[\\/])+[\w.+\-]+\.[A-Za-z][\w]*"
     r"|[\w.+\-]+\.[A-Za-z][\w]*)"
     r"(?::(?P<line>\d+)(?::(?P<col>\d+))?)?")
 
@@ -93,8 +98,15 @@ def open_in_editor(key, path, line=None, col=None, cwd=None):
             "dans le PATH.\nInstalle sa commande shell (VS Code/Cursor : "
             "« Shell Command: Install 'code'/'cursor' command » depuis la "
             "palette).")
-    target = _target(resolve_path(path, cwd), line, col)
-    args = ["-g", target] if spec["goto"] else [target]
+    resolved = resolve_path(path, cwd)
+    if line and not os.path.isdir(resolved):
+        # Fichier avec position : saut a la ligne/colonne (``-g`` pour VS
+        # Code / Cursor).
+        target = _target(resolved, line, col)
+        args = ["-g", target] if spec["goto"] else [target]
+    else:
+        # Dossier, ou fichier sans position : ouverture simple.
+        args = [resolved]
     try:
         if IS_WIN and exe.lower().endswith((".cmd", ".bat")):
             # Les shims .cmd ne sont pas executables par CreateProcess : on
