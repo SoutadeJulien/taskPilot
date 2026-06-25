@@ -1,0 +1,4 @@
+# Dépendance du serveur MCP des logs (python -m taskpilot.mcp).
+# Séparée de requirements.txt pour ne PAS embarquer le SDK dans l'exe Qt :
+# le serveur MCP est lancé à part par le client (Zed, Claude Code…).
+mcp>=1.2

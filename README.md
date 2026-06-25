@@ -39,6 +39,46 @@ L'exe est autonome (PySide6 + le PTY `pywinpty`/`pyte` embarqués), aucune
 installation côté utilisateur. La CI (`.github/workflows/build-release.yml`) le
 construit et publie une release à chaque push sur `master`.
 
+## Serveur MCP des logs
+
+Un petit serveur [MCP](https://modelcontextprotocol.io) (lecture seule) permet à
+un assistant IA (Zed, Claude Code…) de consulter les logs de la session
+courante. Il n'est **pas** intégré à l'application : il est lancé en stdio par
+le client *à la demande*, ce qui sert d'interrupteur — présent dans la config du
+client = actif, retiré = inactif. Aucune option dans TaskPilot, aucun port
+ouvert, rien qui tourne en permanence.
+
+```sh
+py -V:3.13 -m pip install -r requirements-mcp.txt   # le SDK `mcp` (Python ≥ 3.10)
+py -V:3.13 -m taskpilot.mcp                          # lancement manuel (debug)
+```
+
+Le dossier des logs est résolu exactement comme dans l'app (cf. `Config.log_dir`,
+défaut `%TEMP%\taskpilot-logs`). Outils exposés : `list_logs`, `read_log`,
+`tail_log`, `search_logs` (littéral ou regex).
+
+Déclaration dans le `settings.json` de **Zed** :
+
+```json
+{
+  "context_servers": {
+    "taskpilot-logs": {
+      "source": "custom",
+      "command": "C:\\Python313\\python.exe",
+      "args": ["-m", "taskpilot.mcp"],
+      "env": { "PYTHONPATH": "C:\\dev\\taskPilot" }
+    }
+  }
+}
+```
+
+> Dans le dialogue *Add MCP Server* de Zed, ne colle que l'entrée
+> `"taskpilot-logs": { … }` (une seule paire clé/valeur, sans l'enveloppe
+> `context_servers`). En éditant `settings.json` à la main, garde l'enveloppe
+> complète ci-dessus.
+
+> Le SDK `mcp` exige Python ≥ 3.10 : utiliser l'interpréteur 3.13, pas un 3.7/3.9.
+
 ## Architecture
 
 Séparation stricte entre logique métier et présentation :
@@ -52,6 +92,7 @@ taskpilot/
 │   ├── jobobject.py     Job Object Windows (kill d'arbre via ctypes)
 │   ├── vscode_tasks.py  Parsing tasks.json + modèles CommandSpec / TaskNode
 │   └── task_runner.py   TaskConsole : process + capture de sortie + kill
+├── mcp/                 Serveur MCP des logs (lecture seule, lancé à part)
 └── qt/                  Présentation (PySide6 / Qt)
     ├── theme.py         Palettes, QSS, live-switch des thèmes
     ├── main_window.py   Fenêtre principale, menus, barre d'état

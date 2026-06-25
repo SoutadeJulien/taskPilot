@@ -26,7 +26,10 @@ a = Analysis(
     hiddenimports=_pty_h + _pyte_h,
     hookspath=[],
     runtime_hooks=[],
-    excludes=[],
+    # Le serveur MCP des logs (taskpilot/mcp) est lance a part par le client
+    # (Zed, Claude Code...), jamais par l'app : on l'exclut, ainsi que son SDK
+    # `mcp`, pour ne pas alourdir l'exe avec des dependances inutilisees en GUI.
+    excludes=["taskpilot.mcp", "mcp"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
