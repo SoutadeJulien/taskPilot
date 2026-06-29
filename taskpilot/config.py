@@ -74,6 +74,74 @@ class Config:
         self._data["confirm_bulk"] = bool(value)
         self._save()
 
+    # -- Notifications de fin de task ----------------------------------------
+    @property
+    def notify_on_exit(self):
+        """Afficher un toast Windows quand une task se termine ou échoue."""
+        return bool(self._data.get("notify_on_exit", True))
+
+    @notify_on_exit.setter
+    def notify_on_exit(self, value):
+        self._data["notify_on_exit"] = bool(value)
+        self._save()
+
+    @property
+    def notify_only_background(self):
+        """Ne notifier que si la fenêtre n'est pas au premier plan.
+
+        Les échecs (code de sortie != 0) restent toujours notifiés.
+        """
+        return bool(self._data.get("notify_only_background", True))
+
+    @notify_only_background.setter
+    def notify_only_background(self, value):
+        self._data["notify_only_background"] = bool(value)
+        self._save()
+
+    # -- Profils : groupes de tasks multi-projets ----------------------------
+    def get_profiles(self):
+        """Liste des profils ``[{name, items:[{project, label}]}]``.
+
+        Un profil regroupe des tasks issues de n'importe quel projet, lançables
+        toutes ensemble en un clic. Filtre les entrées malformées.
+        """
+        raw = self._data.get("profiles", [])
+        if not isinstance(raw, list):
+            return []
+        out = []
+        for prof in raw:
+            if not isinstance(prof, dict):
+                continue
+            name = prof.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            items = []
+            for it in prof.get("items", []):
+                if not isinstance(it, dict):
+                    continue
+                project, label = it.get("project"), it.get("label")
+                if isinstance(project, str) and isinstance(label, str) \
+                        and project and label:
+                    items.append({"project": project, "label": label})
+            out.append({"name": name.strip(), "items": items})
+        return out
+
+    def set_profiles(self, profiles):
+        """Remplace la liste des profils (déjà normalisée par l'appelant)."""
+        clean = []
+        for prof in profiles or []:
+            name = (prof.get("name") or "").strip()
+            if not name:
+                continue
+            items = [
+                {"project": it["project"], "label": it["label"]}
+                for it in prof.get("items", [])
+                if it.get("project") and it.get("label")
+            ]
+            clean.append({"name": name, "items": items})
+        self._data["profiles"] = clean
+        self._save()
+
     # -- Favoris (par projet) ------------------------------------------------
     def _favorites_map(self):
         fav = self._data.get("favorites", {})
@@ -101,6 +169,41 @@ class Config:
         self._data["favorites"] = fav
         self._save()
         return is_fav
+
+    # -- Favoris de profils (globaux, par nom) -------------------------------
+    @property
+    def profile_favorites(self):
+        """Noms des profils marques favoris (affiches en section ★ FAVORIS)."""
+        fav = self._data.get("profile_favorites", [])
+        return [x for x in fav if isinstance(x, str)] if isinstance(fav, list) \
+            else []
+
+    def toggle_profile_favorite(self, name):
+        """Ajoute/retire ``name`` des profils favoris. Retourne l'etat."""
+        name = (name or "").strip()
+        if not name:
+            return False
+        fav = list(self.profile_favorites)
+        if name in fav:
+            fav.remove(name)
+            is_fav = False
+        else:
+            fav.append(name)
+            is_fav = True
+        self._data["profile_favorites"] = fav
+        self._save()
+        return is_fav
+
+    # -- Onglet actif du panneau de gauche (Tasks / Profils) -----------------
+    @property
+    def left_tab(self):
+        v = self._data.get("left_tab", 0)
+        return v if v in (0, 1) else 0
+
+    @left_tab.setter
+    def left_tab(self, value):
+        self._data["left_tab"] = 1 if value == 1 else 0
+        self._save()
 
     # -- Couleur par projet (reperage des consoles) --------------------------
     def _project_colors_map(self):
@@ -175,6 +278,24 @@ class Config:
     @all_collapsed.setter
     def all_collapsed(self, value):
         self._data["all_collapsed"] = bool(value)
+        self._save()
+
+    @property
+    def prof_fav_collapsed(self):
+        return bool(self._data.get("prof_fav_collapsed", False))
+
+    @prof_fav_collapsed.setter
+    def prof_fav_collapsed(self, value):
+        self._data["prof_fav_collapsed"] = bool(value)
+        self._save()
+
+    @property
+    def prof_all_collapsed(self):
+        return bool(self._data.get("prof_all_collapsed", False))
+
+    @prof_all_collapsed.setter
+    def prof_all_collapsed(self, value):
+        self._data["prof_all_collapsed"] = bool(value)
         self._save()
 
     @property

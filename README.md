@@ -8,11 +8,18 @@ process Node sous Windows.
 - **Onglet Tasks** — choisir un projet contenant un `.vscode/tasks.json`,
   lister ses tasks, les lancer (y compris les tasks composées `dependsOn`,
   en parallèle ou en séquence), avec **une console intégrée par commande**.
+- **Profils** — regrouper des tasks de **plusieurs projets** (« backend » de
+  l'un, « frontend » de l'autre…) et tout lancer en un clic depuis le bouton
+  *★ Profils* (gestion via *Tasks ▸ Gérer les profils…*).
 - **Kill d'arbre fiable** — chaque task tourne dans un *Job Object* Windows
   configuré avec `KILL_ON_JOB_CLOSE` : l'arrêter tue tout l'arbre de process
   enfants, là où la poubelle de VS Code laisse souvent des process orphelins.
+- **Notifications natives** — toast Windows à la fin (ou l'échec) d'une task,
+  pratique quand la fenêtre est en arrière-plan ; réglable dans *Options ▸
+  Comportement*.
 - **Onglet Process** — liste temps réel des process Node (port, PID, CPU %,
-  mémoire, ligne de commande), tri par colonne, kill sélectif ou global.
+  mémoire, ligne de commande), avec une **sparkline de tendance** (aire = CPU,
+  ligne = mémoire) par process, tri par colonne, kill sélectif ou global.
 - **Apparence personnalisable** — ~30 thèmes interchangeables à chaud, accent
   custom, arrondis, densité, polices UI/console, opacité de la fenêtre, lignes
   alternées et alignement des onglets.

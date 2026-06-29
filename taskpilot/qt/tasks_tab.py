@@ -11,9 +11,9 @@ import queue
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel, QMenu,
-    QMessageBox, QPushButton, QSplitter, QStackedWidget, QTabBar, QTabWidget,
-    QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+    QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog,
+    QLabel, QMenu, QMessageBox, QPushButton, QSplitter, QStackedWidget, QTabBar,
+    QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from taskpilot.core import logs
 from taskpilot.core.pty_console import HAVE_PTY, PtyConsole
@@ -88,7 +88,7 @@ class TasksTab(QWidget):
         self._project_combo = QComboBox()
         self._project_combo.setEditable(False)
         self._project_combo.addItems(self.settings.recent_projects)
-        self._project_combo.setMinimumWidth(280)
+        self._project_combo.setMinimumWidth(260)
         self._project_combo.activated.connect(lambda _i: self.reload_tasks())
         top.addWidget(self._project_combo, 1)
 
@@ -113,24 +113,68 @@ class TasksTab(QWidget):
         v = QVBoxLayout(wrap)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(12)
+        # Deux vues interchangeables : la liste des tasks du projet courant et
+        # la liste des profils (groupes de tasks multi-projets).
+        self._left_tabs = QTabWidget()
+        self._left_tabs.setObjectName("leftTabs")
+        self._left_tabs.addTab(self._build_tasks_pane(), "▶  Tasks")
+        self._left_tabs.addTab(self._build_profiles_pane(), "★  Profils")
+        self._left_tabs.currentChanged.connect(self._on_left_tab_change)
+        v.addWidget(self._left_tabs, 1)
+        self._run_btn = QPushButton("▶  Lancer la task")
+        self._run_btn.setProperty("accent", True)
+        self._run_btn.clicked.connect(self._run_active)
+        v.addWidget(self._run_btn)
+        self._left_tabs.setCurrentIndex(self.settings.left_tab)
+        self._update_run_label()
+        # Detache un peu la carte Task de la zone Consoles (marge a droite, la
+        # poignee du splitter ajoutant deja un espace).
+        wrap.setContentsMargins(0, 0, 4, 0)
+        return wrap
+
+    def _build_tasks_pane(self):
         self._tree = QTreeWidget()
         self._tree.setColumnCount(3)
         self._tree.setHeaderLabels(["Task", "Type", ""])
         self._tree.setRootIsDecorated(True)
         self._tree.setAlternatingRowColors(self.settings.alt_rows)
-        header = self._tree.header()
-        header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        self._tree.setColumnWidth(2, 30)
-        self._tree.itemDoubleClicked.connect(
-            lambda *_: self.run_selected())
+        self._setup_tree_header(self._tree)
+        self._tree.itemDoubleClicked.connect(lambda *_: self.run_selected())
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.itemExpanded.connect(self._on_section_toggle)
         self._tree.itemCollapsed.connect(self._on_section_toggle)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._task_menu)
+        return self._wrap_card(self._tree)
+
+    def _build_profiles_pane(self):
+        self._ptree = QTreeWidget()
+        self._ptree.setColumnCount(3)
+        self._ptree.setHeaderLabels(["Profil", "Type", ""])
+        self._ptree.setRootIsDecorated(True)
+        self._ptree.setAlternatingRowColors(self.settings.alt_rows)
+        self._setup_tree_header(self._ptree)
+        self._ptree.itemDoubleClicked.connect(
+            lambda *_: self._run_selected_profile())
+        self._ptree.itemClicked.connect(self._on_profile_clicked)
+        self._ptree.itemExpanded.connect(self._on_section_toggle)
+        self._ptree.itemCollapsed.connect(self._on_section_toggle)
+        self._ptree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._ptree.customContextMenuRequested.connect(self._profile_menu)
+        self._render_profiles()
+        return self._wrap_card(self._ptree)
+
+    @staticmethod
+    def _setup_tree_header(tree):
+        header = tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        tree.setColumnWidth(2, 30)
+
+    @staticmethod
+    def _wrap_card(tree):
         # L'arbre est enveloppe dans une carte arrondie : la carte porte le
         # rayon (le QTreeWidget reste a angles francs, mais en leger retrait, ses
         # coins sont masques par ceux — arrondis — de la carte).
@@ -138,19 +182,28 @@ class TasksTab(QWidget):
         card.setObjectName("taskCard")
         cl = QVBoxLayout(card)
         cl.setContentsMargins(7, 7, 7, 7)
-        cl.addWidget(self._tree)
-        v.addWidget(card, 1)
-        run = QPushButton("▶  Lancer la task")
-        run.setProperty("accent", True)
-        run.clicked.connect(self.run_selected)
-        v.addWidget(run)
-        # Detache un peu la carte Task de la zone Consoles (marge a droite, la
-        # poignee du splitter ajoutant deja un espace).
-        wrap.setContentsMargins(0, 0, 4, 0)
-        return wrap
+        cl.addWidget(tree)
+        return card
 
     def set_alternating_rows(self, on):
         self._tree.setAlternatingRowColors(bool(on))
+        self._ptree.setAlternatingRowColors(bool(on))
+
+    # -- Bouton « Lancer » contextuel (task / profil) ------------------------
+    def _on_left_tab_change(self, index):
+        self.settings.left_tab = index
+        self._update_run_label()
+
+    def _update_run_label(self):
+        on_profiles = self._left_tabs.currentIndex() == 1
+        self._run_btn.setText(
+            "▶  Lancer le profil" if on_profiles else "▶  Lancer la task")
+
+    def _run_active(self):
+        if self._left_tabs.currentIndex() == 1:
+            self._run_selected_profile()
+        else:
+            self.run_selected()
 
     def _build_consoles(self):
         wrap = QWidget()
@@ -326,6 +379,10 @@ class TasksTab(QWidget):
             self.settings.fav_collapsed = collapsed
         elif key == "all":
             self.settings.all_collapsed = collapsed
+        elif key == "pfav":
+            self.settings.prof_fav_collapsed = collapsed
+        elif key == "pall":
+            self.settings.prof_all_collapsed = collapsed
 
     def _on_item_clicked(self, item, column):
         """Un clic sur la colonne étoile bascule le favori."""
@@ -378,6 +435,7 @@ class TasksTab(QWidget):
         if self.tasks:
             self._render_tasks()
             self._refresh_task_status()
+        self._render_profiles()
         for panel in self.panels:
             btn = getattr(panel, "_close_btn", None)
             if btn is not None:
@@ -420,14 +478,47 @@ class TasksTab(QWidget):
         self.launch_task(label)
 
     def launch_task(self, label):
-        project = self.project
-        tree = build_task_tree(label, self.tasks_by_label, project)
+        self.launch_task_for(self.project, label, self.tasks_by_label)
+
+    def launch_task_for(self, project, label, tasks_by_label=None, warn=True):
+        """Lance ``label`` dans ``project`` (pas forcement le projet courant).
+
+        ``tasks_by_label`` evite de relire ``tasks.json`` quand il est deja
+        connu (projet courant, ou cache d'un profil). Retourne ``True`` si la
+        task a ete lancee. ``warn=False`` rend l'echec silencieux — l'appelant
+        (lancement de profil) agrege alors lui-meme les erreurs.
+        """
+        if not project:
+            return False
+        if tasks_by_label is None:
+            try:
+                tasks = load_vscode_tasks(project)
+            except FileNotFoundError:
+                if warn:
+                    QMessageBox.warning(
+                        self, "tasks.json introuvable",
+                        f"Aucun fichier .vscode/tasks.json dans :\n{project}")
+                return False
+            except Exception as e:  # noqa: BLE001
+                if warn:
+                    QMessageBox.critical(self, "Erreur de lecture",
+                                         f"tasks.json illisible :\n{e}")
+                return False
+            tasks_by_label = {task_label(t): t for t in tasks}
+        if label not in tasks_by_label:
+            if warn:
+                QMessageBox.warning(
+                    self, "Task introuvable",
+                    f"La task « {label} » n'existe pas (ou plus) dans :\n{project}")
+            return False
+        tree = build_task_tree(label, tasks_by_label, project)
         leaves = tree_leaves(tree)
         if not leaves:
-            QMessageBox.warning(
-                self, "Rien à lancer",
-                f"La task « {label} » n'a pas de commande exécutable.")
-            return
+            if warn:
+                QMessageBox.warning(
+                    self, "Rien à lancer",
+                    f"La task « {label} » n'a pas de commande exécutable.")
+            return False
         project_color = self.settings.get_project_color(project) or None
         group = label if len(leaves) > 1 else None
         color = self._group_color(group) if group else None
@@ -436,6 +527,151 @@ class TasksTab(QWidget):
         # lance tous ses enfants simultanement.
         self._run_node(tree, (project, group, color, project_color),
                        lambda ok: None)
+        return True
+
+    # -- Profils (groupes de tasks multi-projets) ----------------------------
+    def launch_profile(self, profile):
+        """Lance toutes les tasks d'un profil, chaque projet n'etant lu qu'une
+        fois. Les tasks introuvables sont signalees groupees en fin."""
+        items = profile.get("items", [])
+        if not items:
+            QMessageBox.information(
+                self, "Profil vide",
+                f"Le profil « {profile.get('name', '')} » ne contient "
+                "aucune task.")
+            return
+        cache = {}
+        launched, errors = 0, []
+        for it in items:
+            project, label = it.get("project", ""), it.get("label", "")
+            tbl = cache.get(project)
+            if tbl is None:
+                try:
+                    tbl = {task_label(t): t for t in load_vscode_tasks(project)}
+                except Exception:  # noqa: BLE001
+                    tbl = {}
+                cache[project] = tbl
+            if self.launch_task_for(project, label, tbl, warn=False):
+                launched += 1
+            else:
+                errors.append(f"{os.path.basename(os.path.normpath(project))} › {label}")
+        if errors:
+            QMessageBox.warning(
+                self, "Profil partiellement lancé",
+                f"{launched} task(s) lancée(s).\n\nNon lancées :\n- "
+                + "\n- ".join(errors))
+
+    def manage_profiles(self):
+        from taskpilot.qt.profiles import ProfilesDialog
+        ProfilesDialog(self, self.settings).exec()
+        self._render_profiles()
+
+    def show_profiles_tab(self):
+        """Bascule le panneau de gauche sur l'onglet Profils."""
+        self._left_tabs.setCurrentIndex(1)
+
+    # -- Arbre des profils ---------------------------------------------------
+    def _render_profiles(self):
+        self._ptree.clear()
+        profiles = self.settings.get_profiles()
+        favorites = set(self.settings.profile_favorites)
+        fav_root = QTreeWidgetItem(["★  FAVORIS", "", ""])
+        all_root = QTreeWidgetItem(["TOUS LES PROFILS", "", ""])
+        fav_root.setData(0, SECTION_ROLE, "pfav")
+        all_root.setData(0, SECTION_ROLE, "pall")
+        for item in (fav_root, all_root):
+            item.setFirstColumnSpanned(True)
+            item.setFlags(Qt.ItemIsEnabled)
+            self._ptree.addTopLevelItem(item)
+            self._style_section(item)
+        for prof in profiles:
+            name = prof["name"]
+            is_fav = name in favorites
+            parent = fav_root if is_fav else all_root
+            n = len(prof["items"])
+            child = QTreeWidgetItem([name, f"{n} task(s)", ""])
+            child.setData(0, Qt.UserRole, name)
+            child.setForeground(1, QColor(theme.MUTED))
+            self._set_star(child, is_fav)
+            parent.addChild(child)
+        if not profiles:
+            hint = QTreeWidgetItem(
+                ["(aucun profil — clic droit ▸ Nouveau profil…)", "", ""])
+            hint.setFlags(Qt.ItemIsEnabled)
+            hint.setForeground(0, QColor(theme.MUTED))
+            all_root.addChild(hint)
+        fav_root.setHidden(fav_root.childCount() == 0)
+        self._ptree.blockSignals(True)
+        fav_root.setExpanded(not self.settings.prof_fav_collapsed)
+        all_root.setExpanded(not self.settings.prof_all_collapsed)
+        self._ptree.blockSignals(False)
+
+    def _on_profile_clicked(self, item, column):
+        """Un clic sur la colonne étoile bascule le favori du profil."""
+        if column != 2:
+            return
+        name = item.data(0, Qt.UserRole)
+        if name:
+            self._toggle_profile_favorite(name)
+
+    def _toggle_profile_favorite(self, name):
+        self.settings.toggle_profile_favorite(name)
+        self._render_profiles()
+
+    def _selected_profile_name(self):
+        for it in self._ptree.selectedItems():
+            name = it.data(0, Qt.UserRole)
+            if name:
+                return name
+        return None
+
+    def _run_selected_profile(self):
+        name = self._selected_profile_name()
+        if not name:
+            QMessageBox.information(self, "Info", "Aucun profil sélectionné.")
+            return
+        self.launch_profile_by_name(name)
+
+    def launch_profile_by_name(self, name):
+        for prof in self.settings.get_profiles():
+            if prof["name"] == name:
+                self.launch_profile(prof)
+                return
+
+    def _profile_menu(self, pos):
+        item = self._ptree.itemAt(pos)
+        name = item.data(0, Qt.UserRole) if item is not None else None
+        menu = QMenu(self)
+        if name:
+            run = menu.addAction("▶  Lancer")
+            run.triggered.connect(lambda: self.launch_profile_by_name(name))
+            favorites = set(self.settings.profile_favorites)
+            fav_label = ("★  Retirer des favoris" if name in favorites
+                         else "☆  Ajouter aux favoris")
+            fav = menu.addAction(fav_label)
+            fav.triggered.connect(lambda: self._toggle_profile_favorite(name))
+            menu.addSeparator()
+        new = menu.addAction("＋  Nouveau profil…")
+        new.triggered.connect(self._new_profile_quick)
+        manage = menu.addAction("Gérer les profils…")
+        manage.triggered.connect(self.manage_profiles)
+        menu.exec(self._ptree.viewport().mapToGlobal(pos))
+
+    def _new_profile_quick(self):
+        name, ok = QInputDialog.getText(self, "Nouveau profil", "Nom :")
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        profiles = self.settings.get_profiles()
+        if any(p["name"] == name for p in profiles):
+            QMessageBox.information(
+                self, "Existe déjà", f"Un profil « {name} » existe déjà.")
+            return
+        profiles.append({"name": name, "items": []})
+        self.settings.set_profiles(profiles)
+        self._render_profiles()
+        # Ouvre le gestionnaire pour y ajouter des tasks dans la foulee.
+        self.manage_profiles()
 
     def _group_color(self, group):
         if group not in self._group_colors:
@@ -724,10 +960,21 @@ class TasksTab(QWidget):
                     panel.set_exited(payload)
                     panel.console.cleanup()
                     self._mark_tab_crashed(panel, payload != 0)
+                    self._notify_exit(panel, payload)
             if out:
                 panel.append("".join(out))
         self._refresh_actions()
         self._timer.start(FAST_POLL_MS if backlog else POLL_MS)
+
+    def _notify_exit(self, panel, returncode):
+        """Delegue a la fenetre l'emission d'un toast de fin de task."""
+        notify = getattr(self.app, "notify_task_exit", None)
+        if notify is None:
+            return
+        console = panel.console
+        interactive = bool(getattr(console, "interactive", False)
+                           or getattr(console, "pty", False))
+        notify(console.label, returncode, interactive)
 
     def _mark_tab_crashed(self, panel, crashed):
         if crashed:

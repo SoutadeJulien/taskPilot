@@ -7,12 +7,13 @@ lourds) ; le resultat revient sur le thread UI via un signal Qt.
 
 import threading
 import time
+from collections import deque
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (
-    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget)
+    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QStyle,
+    QStyledItemDelegate, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from taskpilot.core.processes import (
     find_processes, format_memory, kill_process)
@@ -20,7 +21,11 @@ from taskpilot.core.system import NCPU
 from taskpilot.qt import theme
 
 REFRESH_MS = 1500
-COLUMNS = ["Task", "Port", "PID", "CPU %", "Mémoire", "Ligne de commande"]
+COLUMNS = ["Task", "Port", "PID", "CPU %", "Mémoire", "Tendance",
+           "Ligne de commande"]
+#: Index de la colonne sparkline (CPU + memoire) et taille de l'historique.
+SPARK_COL = 5
+HIST_LEN = 40
 #: Libelle du groupe des process Node non rattaches a une task en cours.
 ORPHAN_LABEL = "Node (hors tasks)"
 
@@ -34,6 +39,7 @@ class ProcessTab(QWidget):
         super().__init__()
         self.app = app
         self._prev_cpu = {}
+        self._hist = {}              # pid -> {"cpu": deque, "mem": deque}
         self._sort_col = 3            # CPU %
         self._sort_reverse = True
         self._loading = False
@@ -78,9 +84,14 @@ class ProcessTab(QWidget):
         self._tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         self._tree.setAlternatingRowColors(self.app.settings.alt_rows)
         self._tree.setColumnWidth(0, 200)
-        self._tree.setColumnWidth(5, 480)
+        self._tree.setColumnWidth(SPARK_COL, 110)
+        self._tree.setColumnWidth(6, 480)
         for col in range(1, 5):
             self._tree.setColumnWidth(col, 90)
+        self._tree.setItemDelegateForColumn(SPARK_COL, SparklineDelegate(self._tree))
+        self._tree.headerItem().setToolTip(
+            SPARK_COL, "Tendance récente — aire = CPU, ligne = mémoire\n"
+                       "(mise à l'échelle sur la fenêtre visible)")
         self._tree.header().setSectionsClickable(True)
         self._tree.header().sectionClicked.connect(self._sort_by)
         self._tree.itemExpanded.connect(self._on_expand)
@@ -148,10 +159,26 @@ class ProcessTab(QWidget):
                         p.cpu = max(0.0,
                                     (p.cpu_time - prev_time) / dt / NCPU * 100.0)
                 self._prev_cpu[p.pid] = (p.cpu_time, now)
+            hist = self._hist.get(p.pid)
+            if hist is None:
+                hist = self._hist[p.pid] = {
+                    "cpu": deque(maxlen=HIST_LEN), "mem": deque(maxlen=HIST_LEN)}
+            hist["cpu"].append(p.cpu if p.cpu is not None else 0.0)
+            hist["mem"].append(float(p.mem))
         live = {p.pid for p in procs}
         for pid in list(self._prev_cpu):
             if pid not in live:
                 self._prev_cpu.pop(pid, None)
+        for pid in list(self._hist):
+            if pid not in live:
+                self._hist.pop(pid, None)
+
+    def _series_for(self, pid):
+        """Couple ``(cpu, mem)`` d'historiques pour la sparkline d'un pid."""
+        hist = self._hist.get(pid)
+        if not hist or not hist["cpu"]:
+            return None
+        return (tuple(hist["cpu"]), tuple(hist["mem"]))
 
     # -- Rendu ---------------------------------------------------------------
     def _render(self, procs, err):
@@ -176,7 +203,7 @@ class ProcessTab(QWidget):
         self._tree.clear()
         for label in order:
             display = label if label is not None else ORPHAN_LABEL
-            parent = QTreeWidgetItem([display, "", "", "", "", ""])
+            parent = QTreeWidgetItem([display, "", "", "", "", "", ""])
             parent.setData(0, Qt.UserRole, ("task", label))
             pfont = parent.font(0)
             pfont.setBold(True)
@@ -188,6 +215,7 @@ class ProcessTab(QWidget):
             for p in self._sorted(by_task[label]):
                 child = QTreeWidgetItem(self._row_values(p))
                 child.setData(0, Qt.UserRole, ("proc", p.pid))
+                child.setData(SPARK_COL, Qt.UserRole, self._series_for(p.pid))
                 for col in (1, 2, 3, 4):
                     child.setTextAlignment(col, Qt.AlignRight | Qt.AlignVCenter)
                 parent.addChild(child)
@@ -234,7 +262,7 @@ class ProcessTab(QWidget):
         else:
             cpu = f"{p.cpu:.2f}"
         port = ", ".join(str(x) for x in p.ports) if p.ports else "-"
-        return ["", port, str(p.pid), cpu, format_memory(p.mem), p.cmd]
+        return ["", port, str(p.pid), cpu, format_memory(p.mem), "", p.cmd]
 
     def _update_status(self, procs, ntasks):
         if not procs and not self._flash:
@@ -253,7 +281,7 @@ class ProcessTab(QWidget):
 
     # -- Tri -----------------------------------------------------------------
     def _sort_by(self, col):
-        if col == 0:
+        if col in (0, SPARK_COL):
             return
         if self._sort_col == col:
             self._sort_reverse = not self._sort_reverse
@@ -318,3 +346,75 @@ class ProcessTab(QWidget):
             msg += f" {failed} échec(s) (droits insuffisants ?)."
         self._flash = msg
         self.refresh()
+
+
+class SparklineDelegate(QStyledItemDelegate):
+    """Dessine une mini-courbe CPU (aire) + mémoire (ligne) par process.
+
+    Les deux séries sont stockées sur la cellule (``Qt.UserRole``) sous forme
+    ``(cpu, mem)`` et mises à l'échelle min-max sur la fenêtre visible : c'est
+    la *variation* récente qui est lisible d'un coup d'œil, pas la valeur
+    absolue (déjà affichée dans les colonnes CPU % / Mémoire).
+    """
+
+    def paint(self, painter, option, index):
+        if option.state & QStyle.State_Selected:
+            painter.fillRect(option.rect, option.palette.highlight())
+        series = index.data(Qt.UserRole)
+        if not series:
+            return
+        cpu, mem = series
+        rect = QRectF(option.rect).adjusted(5, 5, -5, -5)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setClipRect(QRectF(option.rect))
+        self._draw_line(painter, rect, mem, QColor(theme.MUTED), width=1.0)
+        self._draw_area(painter, rect, cpu, QColor(theme.ACCENT))
+        painter.restore()
+
+    @staticmethod
+    def _points(rect, values):
+        """Projette ``values`` (mise à l'échelle min-max) dans ``rect``."""
+        n = len(values)
+        if n == 0:
+            return []
+        lo, hi = min(values), max(values)
+        span = hi - lo
+        step = rect.width() / (n - 1) if n > 1 else 0.0
+        pts = []
+        for i, v in enumerate(values):
+            frac = 0.5 if span <= 1e-9 else (v - lo) / span
+            x = rect.left() + i * step
+            y = rect.bottom() - frac * rect.height()
+            pts.append(QPointF(x, y))
+        return pts
+
+    def _draw_area(self, painter, rect, values, color):
+        pts = self._points(rect, values)
+        if not pts:
+            return
+        fill = QColor(color)
+        fill.setAlpha(55)
+        poly = QPolygonF([QPointF(pts[0].x(), rect.bottom())] + pts
+                         + [QPointF(pts[-1].x(), rect.bottom())])
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(fill)
+        painter.drawPolygon(poly)
+        pen = QPen(color)
+        pen.setWidthF(1.2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        if len(pts) > 1:
+            painter.drawPolyline(QPolygonF(pts))
+        else:
+            painter.drawPoint(pts[0])
+
+    def _draw_line(self, painter, rect, values, color, width=1.0):
+        pts = self._points(rect, values)
+        if len(pts) < 2:
+            return
+        pen = QPen(color)
+        pen.setWidthF(width)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPolyline(QPolygonF(pts))

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from taskpilot import __version__
 from taskpilot.core import editors, logs
 from taskpilot.qt import theme
+from taskpilot.qt.notify import Notifier
 from taskpilot.qt.process_tab import ProcessTab
 from taskpilot.qt.tasks_tab import TasksTab
 
@@ -55,6 +56,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.tabs)
         self.setCentralWidget(central)
 
+        # Emetteur de toasts (fin/echec de task) — adosse a l'icone deja posee.
+        self.notifier = Notifier(self)
+
         self._build_menus()
 
         # Barre de statut « vivante » : projet, consoles actives, process Node.
@@ -93,6 +97,8 @@ class MainWindow(QMainWindow):
         run_menu = bar.addMenu("Tasks")
         self._add(run_menu, "Lancer la task sélectionnée", tasks.run_selected,
                   "Ctrl+R")
+        run_menu.addSeparator()
+        self._add(run_menu, "Gérer les profils…", tasks.manage_profiles)
         run_menu.addSeparator()
         self._add(run_menu, "Tout fermer", tasks.close_all)
         self._add(run_menu, "Tout arrêter", tasks.kill_all)
@@ -155,6 +161,14 @@ class MainWindow(QMainWindow):
         self._confirm_act = self._add_check(
             behavior, "Confirmer les actions groupées",
             self.settings.confirm_bulk, self._save_confirm)
+        behavior.addSeparator()
+        self._notify_act = self._add_check(
+            behavior, "Notifier la fin des tasks",
+            self.settings.notify_on_exit, self._set_notify_on_exit)
+        self._notify_bg_act = self._add_check(
+            behavior, "Notifier seulement en arrière-plan",
+            self.settings.notify_only_background, self._set_notify_bg)
+        self._notify_bg_act.setEnabled(self.settings.notify_on_exit)
 
         # — Logs : enregistrement et dossier —
         logs_menu = opt.addMenu("Logs")
@@ -398,6 +412,13 @@ class MainWindow(QMainWindow):
     def _save_confirm(self, on):
         self.settings.confirm_bulk = on
 
+    def _set_notify_on_exit(self, on):
+        self.settings.notify_on_exit = on
+        self._notify_bg_act.setEnabled(on)
+
+    def _set_notify_bg(self, on):
+        self.settings.notify_only_background = on
+
     def _save_logs_pref(self, on):
         self.settings.save_logs = on
 
@@ -432,9 +453,37 @@ class MainWindow(QMainWindow):
         if self.tabs.widget(index) is self.process_tab:
             self.process_tab.on_shown()
 
+    # -- Notifications -------------------------------------------------------
+    def notify_task_exit(self, label, returncode, interactive=False):
+        """Emet un toast a la fin d'une task (succes ou echec).
+
+        Ignore les consoles interactives (shells) et respecte les preferences :
+        notifications globales activees, et — hors echec — seulement en
+        arriere-plan si l'utilisateur l'a demande.
+        """
+        if interactive or not self.settings.notify_on_exit:
+            return
+        failed = returncode != 0
+        if (self.settings.notify_only_background and not failed
+                and self.isActiveWindow()):
+            return
+        if failed:
+            self.notifier.notify(
+                "Task en échec",
+                f"« {label} » s'est arrêtée (code {returncode}).",
+                success=False)
+        else:
+            self.notifier.notify(
+                "Task terminée",
+                f"« {label} » s'est terminée avec succès.", success=True)
+
     def closeEvent(self, event):
         try:
             self.tasks_tab.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self.notifier.dispose()
         except Exception:  # noqa: BLE001
             pass
         super().closeEvent(event)
