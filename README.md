@@ -1,122 +1,123 @@
 # TaskPilot
 
-Outil graphique (PySide6 / Qt) pour piloter des tasks VS Code et surveiller les
-process Node sous Windows.
+Graphical tool (PySide6 / Qt) to drive VS Code tasks and monitor Node
+processes on Windows.
 
-## Fonctionnalités
+## Features
 
-- **Onglet Tasks** — choisir un projet contenant un `.vscode/tasks.json`,
-  lister ses tasks, les lancer (y compris les tasks composées `dependsOn`,
-  en parallèle ou en séquence), avec **une console intégrée par commande**.
-- **Profils** — regrouper des tasks de **plusieurs projets** (« backend » de
-  l'un, « frontend » de l'autre…) et tout lancer en un clic depuis le bouton
-  *★ Profils* (gestion via *Tasks ▸ Gérer les profils…*).
-- **Kill d'arbre fiable** — chaque task tourne dans un *Job Object* Windows
-  configuré avec `KILL_ON_JOB_CLOSE` : l'arrêter tue tout l'arbre de process
-  enfants, là où la poubelle de VS Code laisse souvent des process orphelins.
-- **Notifications natives** — toast Windows à la fin (ou l'échec) d'une task,
-  pratique quand la fenêtre est en arrière-plan ; réglable dans *Options ▸
-  Comportement*.
-- **Onglet Process** — liste temps réel des process Node (port, PID, CPU %,
-  mémoire, ligne de commande), avec une **sparkline de tendance** (aire = CPU,
-  ligne = mémoire) par process, tri par colonne, kill sélectif ou global.
-- **Apparence personnalisable** — ~30 thèmes interchangeables à chaud, accent
-  custom, arrondis, densité, polices UI/console, opacité de la fenêtre, lignes
-  alternées et alignement des onglets.
+- **Tasks tab** — pick a project containing a `.vscode/tasks.json`, list its
+  tasks and run them (including compound `dependsOn` tasks, in parallel or in
+  sequence), with **one embedded console per command**.
+- **Profiles** — group tasks from **several projects** (the "backend" of one,
+  the "frontend" of another…) and launch everything in one click from the
+  *★ Profiles* button (managed via *Tasks ▸ Manage profiles…*).
+- **Reliable tree kill** — each task runs in a Windows *Job Object* configured
+  with `KILL_ON_JOB_CLOSE`: stopping it kills the whole child process tree,
+  where the VS Code trash can often leaves orphan processes behind.
+- **Native notifications** — Windows toast when a task finishes (or fails),
+  handy when the window is in the background; configurable in *Options ▸
+  Behavior*.
+- **Process tab** — real-time list of Node processes (port, PID, CPU %,
+  memory, command line), with a **trend sparkline** (area = CPU, line = memory)
+  per process, sorting by column, selective or global kill.
+- **Customizable appearance** — ~30 hot-swappable themes, custom accent,
+  rounded corners, density, UI/console fonts, window opacity, alternating rows
+  and tab alignment.
 
-## Lancer
-
-```sh
-python main.py          # ou double-clic sur start.bat (crée le venv .venv au besoin)
-python -m taskpilot     # équivalent
-```
-
-Prérequis : **Python ≥ 3.9** (testé avec 3.13) et les dépendances de
-`requirements.txt` (`PySide6`, `pywinpty`, `pyte`). La partie kill d'arbre
-utilise `ctypes` (stdlib) et n'est pleinement effective que sous Windows ; un
-repli par groupes de process existe pour Linux/macOS.
-
-## Construire l'exécutable autonome
+## Running
 
 ```sh
-build.bat               # génère dist\TaskPilot.exe via PyInstaller (taskpilot.spec)
+python main.py          # or double-click start.bat (creates the .venv if needed)
+python -m taskpilot     # equivalent
 ```
 
-L'exe est autonome (PySide6 + le PTY `pywinpty`/`pyte` embarqués), aucune
-installation côté utilisateur. La CI (`.github/workflows/build-release.yml`) le
-construit et publie une release à chaque push sur `master`.
+Requirements: **Python ≥ 3.9** (tested with 3.13) and the dependencies from
+`requirements.txt` (`PySide6`, `pywinpty`, `pyte`). The tree-kill feature uses
+`ctypes` (stdlib) and is fully effective only on Windows; a process-group
+fallback exists for Linux/macOS.
 
-## Serveur MCP des logs
-
-Un petit serveur [MCP](https://modelcontextprotocol.io) (lecture seule) permet à
-un assistant IA (Zed, Claude Code…) de consulter les logs de la session
-courante. Il n'est **pas** intégré à l'application : il est lancé en stdio par
-le client *à la demande*, ce qui sert d'interrupteur — présent dans la config du
-client = actif, retiré = inactif. Aucune option dans TaskPilot, aucun port
-ouvert, rien qui tourne en permanence.
+## Building the standalone executable
 
 ```sh
-py -V:3.13 -m pip install -r requirements-mcp.txt   # le SDK `mcp` (Python ≥ 3.10)
-py -V:3.13 -m taskpilot.mcp                          # lancement manuel (debug)
+build.bat               # produces dist\TaskPilot.exe via PyInstaller (taskpilot.spec)
 ```
 
-Le dossier des logs est résolu exactement comme dans l'app (cf. `Config.log_dir`,
-défaut `%TEMP%\taskpilot-logs`). Outils exposés : `list_logs`, `read_log`,
-`tail_log`, `search_logs` (littéral ou regex).
+The exe is self-contained (PySide6 + the `pywinpty`/`pyte` PTY bundled in), no
+installation required on the user's side. CI
+(`.github/workflows/build-release.yml`) builds it and publishes a release on
+every push to `master`.
 
-Déclaration dans le `settings.json` de **Zed** :
+## Logs MCP server
+
+A small read-only [MCP](https://modelcontextprotocol.io) server lets an AI
+assistant (Zed, Claude Code…) inspect the current session's logs. It is **not**
+integrated into the application: it is launched over stdio by the client *on
+demand*, which acts as an on/off switch — present in the client config = active,
+removed = inactive. No option in TaskPilot, no open port, nothing running
+permanently.
+
+```sh
+py -V:3.13 -m pip install -r requirements-mcp.txt   # the `mcp` SDK (Python ≥ 3.10)
+py -V:3.13 -m taskpilot.mcp                          # manual launch (debug)
+```
+
+The logs directory is resolved exactly as in the app (see `Config.log_dir`,
+default `%TEMP%\taskpilot-logs`). Exposed tools: `list_logs`, `read_log`,
+`tail_log`, `search_logs` (literal or regex).
+
+Declaration in **Zed**'s `settings.json`:
 
 ```json
 {
   "context_servers": {
     "taskpilot-logs": {
-      "command": "C:\\chemin\\vers\\python.exe",
+      "command": "C:\\path\\to\\python.exe",
       "args": ["-m", "taskpilot.mcp"],
-      "env": { "PYTHONPATH": "C:\\chemin\\vers\\taskPilot" }
+      "env": { "PYTHONPATH": "C:\\path\\to\\taskPilot" }
     }
   }
 }
 ```
 
-Remplace les deux chemins par les tiens :
+Replace both paths with your own:
 
-- `command` — l'interpréteur Python **≥ 3.10** à utiliser (celui qui a le SDK
-  `mcp` installé), p. ex. `C:\\Python313\\python.exe`. Pour le trouver :
+- `command` — the Python interpreter **≥ 3.10** to use (the one that has the
+  `mcp` SDK installed), e.g. `C:\\Python313\\python.exe`. To find it:
   `py -V:3.13 -c "import sys; print(sys.executable)"`.
-- `env.PYTHONPATH` — la **racine du dépôt** TaskPilot (le dossier qui contient
-  `main.py` et le paquet `taskpilot/`), pour que `-m taskpilot.mcp` soit
-  résolu.
+- `env.PYTHONPATH` — the **repository root** of TaskPilot (the folder
+  containing `main.py` and the `taskpilot/` package), so that `-m taskpilot.mcp`
+  can be resolved.
 
-> Dans le dialogue *Add MCP Server* de Zed, ne colle que l'entrée
-> `"taskpilot-logs": { … }` (une seule paire clé/valeur, sans l'enveloppe
-> `context_servers`). En éditant `settings.json` à la main, garde l'enveloppe
-> complète ci-dessus.
+> In Zed's *Add MCP Server* dialog, paste only the `"taskpilot-logs": { … }`
+> entry (a single key/value pair, without the `context_servers` wrapper). When
+> editing `settings.json` by hand, keep the full wrapper shown above.
 
-> Le SDK `mcp` exige Python ≥ 3.10 : utiliser l'interpréteur 3.13, pas un 3.7/3.9.
+> The `mcp` SDK requires Python ≥ 3.10: use the 3.13 interpreter, not a
+> 3.7/3.9 one.
 
 ## Architecture
 
-Séparation stricte entre logique métier et présentation :
+Strict separation between business logic and presentation:
 
 ```
 taskpilot/
-├── config.py            Persistance de la config utilisateur (~/.taskpilot.json)
-├── core/                Logique métier — AUCUNE dépendance à l'UI
-│   ├── system.py        Indicateurs plateforme (IS_WIN, NCPU, NO_WINDOW)
-│   ├── processes.py     Détection / kill des process Node (modèle NodeProcess)
-│   ├── jobobject.py     Job Object Windows (kill d'arbre via ctypes)
-│   ├── vscode_tasks.py  Parsing tasks.json + modèles CommandSpec / TaskNode
-│   └── task_runner.py   TaskConsole : process + capture de sortie + kill
-├── mcp/                 Serveur MCP des logs (lecture seule, lancé à part)
-└── qt/                  Présentation (PySide6 / Qt)
-    ├── theme.py         Palettes, QSS, live-switch des thèmes
-    ├── main_window.py   Fenêtre principale, menus, barre d'état
-    ├── tasks_tab.py     Onglet Tasks
-    ├── process_tab.py   Onglet Process
-    ├── console_view.py  Console (lecture seule) d'une task
-    └── terminal_view.py Terminal interactif (émulateur VT pyte + PTY)
+├── config.py            Persistence of the user config (~/.taskpilot.json)
+├── core/                Business logic — NO dependency on the UI
+│   ├── system.py        Platform flags (IS_WIN, NCPU, NO_WINDOW)
+│   ├── processes.py     Detection / kill of Node processes (NodeProcess model)
+│   ├── jobobject.py     Windows Job Object (tree kill via ctypes)
+│   ├── vscode_tasks.py  tasks.json parsing + CommandSpec / TaskNode models
+│   └── task_runner.py   TaskConsole: process + output capture + kill
+├── mcp/                 Logs MCP server (read-only, launched separately)
+└── qt/                  Presentation (PySide6 / Qt)
+    ├── theme.py         Palettes, QSS, live theme switching
+    ├── main_window.py   Main window, menus, status bar
+    ├── tasks_tab.py     Tasks tab
+    ├── process_tab.py   Process tab
+    ├── console_view.py  Read-only console of a task
+    └── terminal_view.py Interactive terminal (pyte VT emulator + PTY)
 ```
 
-La couche `core` est testable et réutilisable indépendamment de l'UI : elle ne
-communique avec elle que via des objets simples (dataclasses) et une
-`queue.Queue` pour le flux de sortie des consoles.
+The `core` layer is testable and reusable independently of the UI: it
+communicates with the UI only through plain objects (dataclasses) and a
+`queue.Queue` for the console output stream.
