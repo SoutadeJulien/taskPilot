@@ -70,7 +70,6 @@ Déclaration dans le `settings.json` de **Zed** :
 {
   "context_servers": {
     "taskpilot-logs": {
-      "source": "custom",
       "command": "C:\\chemin\\vers\\python.exe",
       "args": ["-m", "taskpilot.mcp"],
       "env": { "PYTHONPATH": "C:\\chemin\\vers\\taskPilot" }
