@@ -71,13 +71,22 @@ Déclaration dans le `settings.json` de **Zed** :
   "context_servers": {
     "taskpilot-logs": {
       "source": "custom",
-      "command": "C:\\Python313\\python.exe",
+      "command": "C:\\chemin\\vers\\python.exe",
       "args": ["-m", "taskpilot.mcp"],
-      "env": { "PYTHONPATH": "C:\\dev\\taskPilot" }
+      "env": { "PYTHONPATH": "C:\\chemin\\vers\\taskPilot" }
     }
   }
 }
 ```
+
+Remplace les deux chemins par les tiens :
+
+- `command` — l'interpréteur Python **≥ 3.10** à utiliser (celui qui a le SDK
+  `mcp` installé), p. ex. `C:\\Python313\\python.exe`. Pour le trouver :
+  `py -V:3.13 -c "import sys; print(sys.executable)"`.
+- `env.PYTHONPATH` — la **racine du dépôt** TaskPilot (le dossier qui contient
+  `main.py` et le paquet `taskpilot/`), pour que `-m taskpilot.mcp` soit
+  résolu.
 
 > Dans le dialogue *Add MCP Server* de Zed, ne colle que l'entrée
 > `"taskpilot-logs": { … }` (une seule paire clé/valeur, sans l'enveloppe

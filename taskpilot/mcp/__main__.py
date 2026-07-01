@@ -96,7 +96,7 @@ def tail_log(name: str, lines: int = 200) -> str:
     """Retourne les ``lines`` dernières lignes d'un log."""
     path = _resolve(name)
     with open(path, "r", encoding="utf-8", errors="replace") as f:
-        tail = f.readlines()[-max(1, lines):]
+        tail = f.readlines()[-max(1, lines) :]
     return "".join(tail)
 
 
@@ -128,8 +128,7 @@ def search_logs(
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 for i, line in enumerate(f, 1):
                     if pattern.search(line):
-                        out.append({"file": name, "line": i,
-                                    "text": line.rstrip("\n")})
+                        out.append({"file": name, "line": i, "text": line.rstrip("\n")})
                         if len(out) >= max_results:
                             return out
         except OSError:
