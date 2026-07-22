@@ -11,11 +11,13 @@ import queue
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog,
-    QLabel, QMenu, QMessageBox, QPushButton, QSplitter, QStackedWidget, QTabBar,
-    QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+    QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
+    QInputDialog, QLabel, QMenu, QMessageBox, QPushButton, QSplitter,
+    QStackedWidget, QTabBar, QTabWidget, QToolButton, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from taskpilot.core import logs
+from taskpilot.core import scripts as core_scripts
 from taskpilot.core.pty_console import HAVE_PTY, PtyConsole
 from taskpilot.core.task_runner import EVENT_EXIT, EVENT_OUTPUT, TaskConsole
 from taskpilot.core.vscode_tasks import (
@@ -119,6 +121,7 @@ class TasksTab(QWidget):
         self._left_tabs.setObjectName("leftTabs")
         self._left_tabs.addTab(self._build_tasks_pane(), "▶  Tasks")
         self._left_tabs.addTab(self._build_profiles_pane(), "★  Profils")
+        self._left_tabs.addTab(self._build_scripts_pane(), "⚙  Scripts")
         self._left_tabs.currentChanged.connect(self._on_left_tab_change)
         v.addWidget(self._left_tabs, 1)
         self._run_btn = QPushButton("▶  Lancer la task")
@@ -164,6 +167,39 @@ class TasksTab(QWidget):
         self._render_profiles()
         return self._wrap_card(self._ptree)
 
+    def _build_scripts_pane(self):
+        self._stree = QTreeWidget()
+        self._stree.setColumnCount(3)
+        self._stree.setHeaderLabels(["Script", "Langage", ""])
+        self._stree.setRootIsDecorated(False)
+        self._stree.setAlternatingRowColors(self.settings.alt_rows)
+        self._setup_tree_header(self._stree)
+        self._stree.itemDoubleClicked.connect(
+            lambda *_: self._run_selected_script())
+        self._stree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._stree.customContextMenuRequested.connect(self._script_menu)
+        self._render_scripts()
+
+        wrap = QWidget()
+        v = QVBoxLayout(wrap)
+        v.setContentsMargins(0, 0, 4, 0)
+        v.setSpacing(8)
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+        new = QPushButton("＋ Nouveau")
+        new.clicked.connect(self._new_script)
+        bar.addWidget(new)
+        edit = QPushButton("✎ Éditer")
+        edit.clicked.connect(self._edit_selected_script)
+        bar.addWidget(edit)
+        delete = QPushButton("🗑 Supprimer")
+        delete.clicked.connect(self._delete_selected_script)
+        bar.addWidget(delete)
+        bar.addStretch(1)
+        v.addLayout(bar)
+        v.addWidget(self._wrap_card(self._stree), 1)
+        return wrap
+
     @staticmethod
     def _setup_tree_header(tree):
         header = tree.header()
@@ -188,6 +224,7 @@ class TasksTab(QWidget):
     def set_alternating_rows(self, on):
         self._tree.setAlternatingRowColors(bool(on))
         self._ptree.setAlternatingRowColors(bool(on))
+        self._stree.setAlternatingRowColors(bool(on))
 
     # -- Bouton « Lancer » contextuel (task / profil) ------------------------
     def _on_left_tab_change(self, index):
@@ -195,13 +232,16 @@ class TasksTab(QWidget):
         self._update_run_label()
 
     def _update_run_label(self):
-        on_profiles = self._left_tabs.currentIndex() == 1
-        self._run_btn.setText(
-            "▶  Lancer le profil" if on_profiles else "▶  Lancer la task")
+        label = {1: "▶  Lancer le profil", 2: "▶  Lancer le script"}.get(
+            self._left_tabs.currentIndex(), "▶  Lancer la task")
+        self._run_btn.setText(label)
 
     def _run_active(self):
-        if self._left_tabs.currentIndex() == 1:
+        index = self._left_tabs.currentIndex()
+        if index == 1:
             self._run_selected_profile()
+        elif index == 2:
+            self._run_selected_script()
         else:
             self.run_selected()
 
@@ -436,6 +476,7 @@ class TasksTab(QWidget):
             self._render_tasks()
             self._refresh_task_status()
         self._render_profiles()
+        self._render_scripts()
         for panel in self.panels:
             btn = getattr(panel, "_close_btn", None)
             if btn is not None:
@@ -672,6 +713,166 @@ class TasksTab(QWidget):
         self._render_profiles()
         # Ouvre le gestionnaire pour y ajouter des tasks dans la foulee.
         self.manage_profiles()
+
+    # -- Scripts utilitaires (Python / Node) ---------------------------------
+    def _render_scripts(self):
+        self._stree.clear()
+        scripts = self.settings.get_scripts()
+        for sc in scripts:
+            meta = core_scripts.LANGUAGES.get(sc["language"], {})
+            child = QTreeWidgetItem(
+                [sc["name"], meta.get("label", sc["language"]), ""])
+            child.setData(0, Qt.UserRole, sc["name"])
+            child.setForeground(1, QColor(theme.MUTED))
+            child.setToolTip(0, sc["cwd"] or "(projet courant)")
+            self._stree.addTopLevelItem(child)
+        if not scripts:
+            hint = QTreeWidgetItem(
+                ["(aucun script — « ＋ Nouveau » pour en créer un)", "", ""])
+            hint.setFlags(Qt.ItemIsEnabled)
+            hint.setForeground(0, QColor(theme.MUTED))
+            self._stree.addTopLevelItem(hint)
+
+    def _selected_script_name(self):
+        for it in self._stree.selectedItems():
+            name = it.data(0, Qt.UserRole)
+            if name:
+                return name
+        return None
+
+    def _find_script(self, name):
+        for sc in self.settings.get_scripts():
+            if sc["name"] == name:
+                return sc
+        return None
+
+    def _run_selected_script(self):
+        name = self._selected_script_name()
+        if not name:
+            QMessageBox.information(self, "Info", "Aucun script sélectionné.")
+            return
+        self._launch_named_script(name)
+
+    def _launch_named_script(self, name):
+        sc = self._find_script(name)
+        if sc:
+            self.launch_script(sc)
+
+    def launch_script(self, script):
+        """Materialise ``script`` et le lance dans une console dediee."""
+        try:
+            spec = core_scripts.build_spec(script, self.project)
+        except core_scripts.InterpreterMissing as e:
+            QMessageBox.warning(self, "Interpréteur introuvable", str(e))
+            return None
+        except OSError as e:  # noqa: BLE001
+            QMessageBox.critical(
+                self, "Erreur", f"Impossible de préparer le script :\n{e}")
+            return None
+        name = script["name"]
+        log_path = logs.new_log_path(name) if self.settings.save_logs else None
+        console = TaskConsole(name, spec, log_path=log_path)
+        panel = ConsoleView(console, on_restart=self._restart_panel,
+                            settings=self.settings)
+        project_color = self.settings.get_project_color(self.project) or None
+        self._tag_panel(panel, self.project, None, project_color)
+        title = (name if len(name) <= MAX_TAB_TITLE
+                 else name[:MAX_TAB_TITLE - 1] + "…")
+        self._add_panel(panel, title, f"Script · {name}", project_color)
+        console.start()
+        self._refresh_actions()
+        return panel
+
+    def _new_script(self):
+        from taskpilot.qt.scripts import ScriptDialog
+        dlg = ScriptDialog(self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        sc = dlg.result_script()
+        scripts = self.settings.get_scripts()
+        if any(s["name"] == sc["name"] for s in scripts):
+            QMessageBox.information(
+                self, "Existe déjà", f"Un script « {sc['name']} » existe déjà.")
+            return
+        scripts.append(sc)
+        self.settings.set_scripts(scripts)
+        self._render_scripts()
+
+    def _edit_selected_script(self):
+        name = self._selected_script_name()
+        if name:
+            self._edit_script(name)
+
+    def _edit_script(self, name):
+        sc = self._find_script(name)
+        if sc is None:
+            return
+        from taskpilot.qt.scripts import ScriptDialog
+        dlg = ScriptDialog(self, sc)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        updated = dlg.result_script()
+        scripts = self.settings.get_scripts()
+        # Nom potentiellement modifie : refuse une collision avec un autre script.
+        if updated["name"] != name and any(
+                s["name"] == updated["name"] for s in scripts):
+            QMessageBox.information(
+                self, "Existe déjà",
+                f"Un script « {updated['name']} » existe déjà.")
+            return
+        for i, s in enumerate(scripts):
+            if s["name"] == name:
+                scripts[i] = updated
+                break
+        self.settings.set_scripts(scripts)
+        self._render_scripts()
+
+    def _duplicate_script(self, name):
+        sc = self._find_script(name)
+        if sc is None:
+            return
+        scripts = self.settings.get_scripts()
+        existing = {s["name"] for s in scripts}
+        new_name, i = f"{name} (copie)", 2
+        while new_name in existing:
+            new_name = f"{name} (copie {i})"
+            i += 1
+        scripts.append(dict(sc, name=new_name))
+        self.settings.set_scripts(scripts)
+        self._render_scripts()
+
+    def _delete_selected_script(self):
+        name = self._selected_script_name()
+        if name:
+            self._delete_script(name)
+
+    def _delete_script(self, name):
+        if QMessageBox.question(
+                self, "Supprimer", f"Supprimer le script « {name} » ?") \
+                != QMessageBox.Yes:
+            return
+        scripts = [s for s in self.settings.get_scripts() if s["name"] != name]
+        self.settings.set_scripts(scripts)
+        self._render_scripts()
+
+    def _script_menu(self, pos):
+        item = self._stree.itemAt(pos)
+        name = item.data(0, Qt.UserRole) if item is not None else None
+        menu = QMenu(self)
+        if name:
+            run = menu.addAction("▶  Lancer")
+            run.triggered.connect(lambda: self._launch_named_script(name))
+            edit = menu.addAction("✎  Éditer…")
+            edit.triggered.connect(lambda: self._edit_script(name))
+            dup = menu.addAction("⧉  Dupliquer")
+            dup.triggered.connect(lambda: self._duplicate_script(name))
+            menu.addSeparator()
+            delete = menu.addAction("🗑  Supprimer")
+            delete.triggered.connect(lambda: self._delete_script(name))
+            menu.addSeparator()
+        new = menu.addAction("＋  Nouveau script…")
+        new.triggered.connect(self._new_script)
+        menu.exec(self._stree.viewport().mapToGlobal(pos))
 
     def _group_color(self, group):
         if group not in self._group_colors:

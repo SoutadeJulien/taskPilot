@@ -11,6 +11,11 @@ processes on Windows.
 - **Profiles** — group tasks from **several projects** (the "backend" of one,
   the "frontend" of another…) and launch everything in one click from the
   *★ Profiles* button (managed via *Tasks ▸ Manage profiles…*).
+- **Scripts** — a third *⚙ Scripts* sub-tab (next to Tasks / Profiles) to write,
+  name and run small **Python or Node** utility scripts (purge `node_modules`,
+  list empty folders…) in an embedded console. Scripts run with the current
+  project as working directory (also exposed as `TASKPILOT_PROJECT`); starter
+  templates are provided for both languages.
 - **Reliable tree kill** — each task runs in a Windows *Job Object* configured
   with `KILL_ON_JOB_CLOSE`: stopping it kills the whole child process tree,
   where the VS Code trash can often leaves orphan processes behind.

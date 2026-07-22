@@ -142,6 +142,54 @@ class Config:
         self._data["profiles"] = clean
         self._save()
 
+    # -- Scripts utilitaires (Python / Node) ---------------------------------
+    def get_scripts(self):
+        """Liste des scripts ``[{name, language, code, cwd}]``.
+
+        Un script est un bout de code Python ou Node nommé, lançable en un clic
+        dans une console (opérations utilitaires : purge node_modules, dossiers
+        vides…). Filtre les entrées malformées.
+        """
+        raw = self._data.get("scripts", [])
+        if not isinstance(raw, list):
+            return []
+        out = []
+        for sc in raw:
+            if not isinstance(sc, dict):
+                continue
+            name = sc.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            language = sc.get("language")
+            if language not in ("python", "node"):
+                language = "python"
+            out.append({
+                "name": name.strip(),
+                "language": language,
+                "code": sc.get("code") if isinstance(sc.get("code"), str) else "",
+                "cwd": sc.get("cwd") if isinstance(sc.get("cwd"), str) else "",
+            })
+        return out
+
+    def set_scripts(self, scripts):
+        """Remplace la liste des scripts (normalise au passage)."""
+        clean = []
+        for sc in scripts or []:
+            name = (sc.get("name") or "").strip()
+            if not name:
+                continue
+            language = sc.get("language")
+            if language not in ("python", "node"):
+                language = "python"
+            clean.append({
+                "name": name,
+                "language": language,
+                "code": sc.get("code") or "",
+                "cwd": (sc.get("cwd") or "").strip(),
+            })
+        self._data["scripts"] = clean
+        self._save()
+
     # -- Favoris (par projet) ------------------------------------------------
     def _favorites_map(self):
         fav = self._data.get("favorites", {})
@@ -194,15 +242,15 @@ class Config:
         self._save()
         return is_fav
 
-    # -- Onglet actif du panneau de gauche (Tasks / Profils) -----------------
+    # -- Onglet actif du panneau de gauche (Tasks / Profils / Scripts) -------
     @property
     def left_tab(self):
         v = self._data.get("left_tab", 0)
-        return v if v in (0, 1) else 0
+        return v if v in (0, 1, 2) else 0
 
     @left_tab.setter
     def left_tab(self, value):
-        self._data["left_tab"] = 1 if value == 1 else 0
+        self._data["left_tab"] = value if value in (0, 1, 2) else 0
         self._save()
 
     # -- Couleur par projet (reperage des consoles) --------------------------
