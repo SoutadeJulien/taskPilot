@@ -11,7 +11,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, Qt
 from PySide6.QtGui import QColor, QTextCursor, QTextFormat
 from PySide6.QtWidgets import QApplication, QLabel, QTextEdit
 
-from taskpilot.qt import theme
+from taskpilot.qt import overlays, theme
 
 
 class _Handle(QLabel):
@@ -142,7 +142,7 @@ class LineSelector(QObject):
             text = "\n".join(lines)
             if text:
                 QApplication.clipboard().setText(text)
-        self.edit.setExtraSelections([])
+        overlays.clear_layer(self.edit, "lines")
         self._anchor = None
         self._bounds = None
         self.handle.hide()
@@ -160,4 +160,4 @@ class LineSelector(QObject):
         sel.cursor = cursor
         sel.format.setBackground(QColor(theme.SELECTION))
         sel.format.setProperty(QTextFormat.FullWidthSelection, True)
-        self.edit.setExtraSelections([sel])
+        overlays.set_layer(self.edit, "lines", [sel])

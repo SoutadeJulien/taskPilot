@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
         self._add(run_menu, "Tout redémarrer", tasks.restart_all)
 
         console_menu = bar.addMenu("Console")
+        console_menu.setToolTipsVisible(True)
         # Ctrl++ n'est pas fiable selon les claviers : on ajoute Ctrl+= (meme
         # touche sans Maj) comme alias.
         zoom_in = self._add(console_menu, "Zoom avant",
@@ -116,8 +117,21 @@ class MainWindow(QMainWindow):
         self._add(console_menu, "Réinitialiser le zoom",
                   tasks.reset_zoom_current, "Ctrl+0")
         console_menu.addSeparator()
+        self._add(console_menu, "Rechercher…", tasks.find_current, "Ctrl+F")
+        self._add(console_menu, "Résultat suivant",
+                  lambda: tasks.find_step_current(1), "F3")
+        self._add(console_menu, "Résultat précédent",
+                  lambda: tasks.find_step_current(-1), "Shift+F3")
+        console_menu.addSeparator()
         self._add(console_menu, "Copier la sortie", tasks.copy_current_output)
         self._add(console_menu, "Vider la console", tasks.clear_current)
+        console_menu.addSeparator()
+        self._syntax_act = self._add_check(
+            console_menu, "Colorer les données (JSON / YAML / XML)",
+            self.settings.syntax_highlight, self._set_syntax_highlight)
+        self._syntax_act.setToolTip(
+            "Détection automatique, ou marqueur explicite : "
+            'console.log("#json", obj)')
 
         opt = bar.addMenu("Options")
 
@@ -348,6 +362,11 @@ class MainWindow(QMainWindow):
     def _set_editor(self, key):
         self.settings.editor = key
 
+    def _set_syntax_highlight(self, on):
+        """Bascule la coloration des donnees structurees (prise en compte par
+        les consoles des la prochaine ligne recue)."""
+        self.settings.syntax_highlight = on
+
     # -- Lignes alternées / barre de statut ----------------------------------
     def _apply_alt_rows(self, on):
         for tab in (self.tasks_tab, self.process_tab):
@@ -438,6 +457,8 @@ class MainWindow(QMainWindow):
             "Ctrl + O\t\tOuvrir un projet\n"
             "F5\t\tRecharger les tasks\n"
             "Ctrl + R\t\tLancer la task sélectionnée\n"
+            "Ctrl + F\t\tRechercher dans la console\n"
+            "F3 / Maj + F3\tRésultat suivant / précédent\n"
             "Ctrl + molette\tZoomer la console\n"
             "Ctrl + + / Ctrl + -\tZoom avant / arrière\n"
             "Ctrl + 0\t\tRéinitialiser le zoom\n"

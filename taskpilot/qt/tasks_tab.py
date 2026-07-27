@@ -1137,6 +1137,30 @@ class TasksTab(QWidget):
         if p:
             p.clear()
 
+    def find_current(self):
+        """Ouvre la recherche (Ctrl+F) dans la console courante.
+
+        Le terminal interactif n'a pas de barre de recherche (son contenu est
+        une grille VT redessinee en continu) : on lui transmet le ``^F`` que la
+        frappe lui aurait envoye sans ce raccourci.
+        """
+        p = self._current_panel()
+        if p is None:
+            return
+        if hasattr(p, "start_find"):
+            p.start_find()
+        elif p.console.is_running():
+            p.console.send("\x06")
+
+    def find_step_current(self, delta):
+        """Occurrence suivante (``+1``) / precedente (``-1``) — F3 / Maj+F3.
+
+        Sans recherche en cours, la barre n'a aucune occurrence : ne fait rien.
+        """
+        p = self._current_panel()
+        if p is not None and hasattr(p, "find_next"):
+            p.find_next() if delta > 0 else p.find_prev()
+
     def shutdown(self):
         for panel in self.panels:
             if panel.console.is_running():

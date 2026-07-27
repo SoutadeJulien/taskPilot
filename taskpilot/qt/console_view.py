@@ -1,7 +1,8 @@
 """Panneau d'affichage (lecture seule) de la sortie d'un ``TaskConsole``.
 
 En-tete (etat + couleur de projet + redemarrer) au-dessus d'un
-``QPlainTextEdit``. Le coloriage par niveau de log, la semantique du retour
+``QPlainTextEdit``. Le coloriage par niveau de log, la coloration syntaxique
+des donnees structurees (cf. ``taskpilot.qt.syntax``), la semantique du retour
 chariot ``\\r`` et le zoom y sont geres. Le rendu de gros buffers, la selection
 et le scroll sont natifs.
 """
@@ -14,7 +15,8 @@ from PySide6.QtWidgets import (
     QFrame, QMessageBox, QPlainTextEdit, QTextEdit, QVBoxLayout, QWidget)
 
 from taskpilot.core import editors
-from taskpilot.qt import theme
+from taskpilot.qt import overlays, syntax, theme
+from taskpilot.qt.find_bar import FindBar
 from taskpilot.qt.header import ConsoleHeader
 from taskpilot.qt.line_select import LineSelector
 
@@ -59,6 +61,7 @@ class ConsoleView(QWidget):
         self._pending = ""
         self._base_size = theme.MONO_SIZE
         self._formats = {}
+        self._parser = syntax.OutputParser()
         self._build()
         theme.notifier.changed.connect(self._on_theme)
         theme.notifier.fonts_changed.connect(self._on_fonts)
@@ -70,6 +73,8 @@ class ConsoleView(QWidget):
         layout.setSpacing(10)
         layout.addWidget(self._build_header())
         self.edit = self._build_edit()
+        self.find_bar = FindBar(self.edit, self)
+        layout.addWidget(self.find_bar)
         layout.addWidget(self.edit, 1)
         self._line_selector = LineSelector(self.edit)
 
@@ -115,6 +120,25 @@ class ConsoleView(QWidget):
             self._formats[level] = fmt
         return fmt
 
+    def _token_fmt(self, kind):
+        """Format d'un jeton de donnee structuree (cle JSON, scalaire...)."""
+        key = "#" + kind
+        fmt = self._formats.get(key)
+        if fmt is None:
+            fmt = QTextCharFormat()
+            color = syntax.token_color(kind)
+            if color:
+                fmt.setForeground(QColor(color))
+            if kind == syntax.KEY:
+                fmt.setFontWeight(QFont.Bold)
+            elif kind == syntax.COMMENT:
+                fmt.setFontItalic(True)
+            self._formats[key] = fmt
+        return fmt
+
+    def _syntax_on(self):
+        return getattr(self.settings, "syntax_highlight", True)
+
     def _on_theme(self):
         """Au changement de theme : les nouvelles lignes prennent les nouvelles
         couleurs (le cache de formats est invalide)."""
@@ -158,13 +182,36 @@ class ConsoleView(QWidget):
         lines = buf.split("\n")
         self._pending = self._apply_cr(lines.pop())
         for line in lines:
-            line = self._apply_cr(line)
-            cursor.insertText(line + "\n", self._fmt(self._level(line)))
+            self._insert(cursor, self._apply_cr(line), "\n")
         if self._pending:
-            cursor.insertText(self._pending, self._fmt(self._level(self._pending)))
+            # Ligne encore incomplete : analysee sans figer l'etat du parser,
+            # puisqu'elle sera re-analysee au prochain morceau recu.
+            self._insert(cursor, self._pending, "", commit=False)
         self._trim()
         if at_bottom:
             sb.setValue(sb.maximum())
+        self.find_bar.on_output()
+
+    def _insert(self, cursor, line, tail, commit=True):
+        """Ecrit une ligne : coloration par jetons si elle est structuree,
+        sinon coloration par niveau de log."""
+        spans = None
+        if self._syntax_on():
+            line, spans = self._parser.feed(line, commit=commit)
+        if spans is None:
+            cursor.insertText(line + tail, self._fmt(self._level(line)))
+            return
+        base = self._fmt(None)
+        pos = 0
+        for start, end, kind in spans:
+            start, end = max(start, pos), min(end, len(line))
+            if end <= start:
+                continue
+            if start > pos:
+                cursor.insertText(line[pos:start], base)
+            cursor.insertText(line[start:end], self._token_fmt(kind))
+            pos = end
+        cursor.insertText(line[pos:] + tail, base)
 
     def _trim(self):
         extra = self.edit.blockCount() - MAX_LINES
@@ -186,7 +233,9 @@ class ConsoleView(QWidget):
     def attach_console(self, console):
         self.console = console
         self._pending = ""
+        self._parser.reset()
         self.edit.clear()
+        self.find_bar.on_output()
         self.header.set_running()
 
     def dispose(self):
@@ -198,8 +247,19 @@ class ConsoleView(QWidget):
             pass
         self.header.dispose()
         self._line_selector.dispose()
+        self.find_bar.dispose()
 
     # -- Actions -------------------------------------------------------------
+    def start_find(self):
+        """Ouvre la barre de recherche (Ctrl+F), amorcee par la selection."""
+        self.find_bar.activate(self.edit.textCursor().selectedText())
+
+    def find_next(self):
+        self.find_bar.step(1)
+
+    def find_prev(self):
+        self.find_bar.step(-1)
+
     def copy_all_output(self):
         """Copie toute la sortie (logs), quelle que soit la sélection."""
         from PySide6.QtWidgets import QApplication
@@ -208,6 +268,8 @@ class ConsoleView(QWidget):
     def clear(self):
         self.edit.clear()
         self._pending = ""
+        self._parser.reset()
+        self.find_bar.on_output()
 
     def zoom(self, delta):
         font = self.edit.font()
@@ -281,6 +343,13 @@ class _ConsoleEdit(QPlainTextEdit):
         self._clear_hover()
         super().leaveEvent(event)
 
+    def keyPressEvent(self, event):
+        # Echap ferme la recherche meme quand le focus est revenu sur la sortie.
+        if event.key() == Qt.Key_Escape and self._owner.find_bar.isVisible():
+            self._owner.find_bar.close_bar()
+            return
+        super().keyPressEvent(event)
+
     def mousePressEvent(self, event):
         if (event.button() == Qt.LeftButton
                 and event.modifiers() & Qt.ControlModifier):
@@ -304,13 +373,13 @@ class _ConsoleEdit(QPlainTextEdit):
         sel.format.setForeground(QColor(theme.ACCENT))
         sel.format.setFontUnderline(True)
         sel.format.setUnderlineColor(QColor(theme.ACCENT))
-        self.setExtraSelections([sel])
+        overlays.set_layer(self, "hover", [sel])
         self.setToolTip("Ctrl+clic pour ouvrir dans l'éditeur")
 
     def _clear_hover(self):
         if self._hover_range is None:
             return
         self._hover_range = None
-        self.setExtraSelections([])
+        overlays.clear_layer(self, "hover")
         self.viewport().setCursor(Qt.IBeamCursor)
         self.setToolTip("")

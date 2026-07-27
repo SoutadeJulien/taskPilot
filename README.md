@@ -16,6 +16,20 @@ processes on Windows.
   list empty folders…) in an embedded console. Scripts run with the current
   project as working directory (also exposed as `TASKPILOT_PROJECT`); starter
   templates are provided for both languages.
+- **Search in a console** — `Ctrl+F` opens an inline find bar over the current
+  console: every match is highlighted, the current one stands out, `Enter` /
+  `Shift+Enter` (or `F3` / `Shift+F3`) walk through them, with *match case* and
+  *whole words* toggles and a `3 / 12` counter. The search follows live output
+  (matches are rescanned as new lines arrive), and `Esc` closes it.
+- **Structured output highlighting** — when a console line contains JSON
+  (`console.log(obj)`, single-line or pretty-printed over several lines), a
+  YAML document (starting with `---`) or an XML/HTML tag, keys, strings,
+  numbers and literals are syntax-coloured with the current theme. Detection is
+  automatic (JSON is validated by a real parser, so a `[12:00:03]` log prefix
+  is not mistaken for an array); when it is not enough, tag the payload
+  explicitly with `console.log("#json", obj)` — the marker is stripped from the
+  display and forces the mode for the whole block (`#json`, `#yaml`, `#xml`).
+  Toggle in *Console ▸ Colour data*.
 - **Reliable tree kill** — each task runs in a Windows *Job Object* configured
   with `KILL_ON_JOB_CLOSE`: stopping it kills the whole child process tree,
   where the VS Code trash can often leaves orphan processes behind.
@@ -120,6 +134,9 @@ taskpilot/
     ├── tasks_tab.py     Tasks tab
     ├── process_tab.py   Process tab
     ├── console_view.py  Read-only console of a task
+    ├── find_bar.py      Console search bar (Ctrl+F)
+    ├── overlays.py      Layered ExtraSelection highlights (find/lines/hover)
+    ├── syntax.py        JSON/YAML/XML detection in the output (spans)
     └── terminal_view.py Interactive terminal (pyte VT emulator + PTY)
 ```
 

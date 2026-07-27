@@ -494,6 +494,16 @@ class Config:
         self._save()
 
     @property
+    def syntax_highlight(self):
+        """Colorer les données structurées (JSON/YAML/XML) dans les consoles."""
+        return bool(self._data.get("syntax_highlight", True))
+
+    @syntax_highlight.setter
+    def syntax_highlight(self, value):
+        self._data["syntax_highlight"] = bool(value)
+        self._save()
+
+    @property
     def editor(self):
         """Editeur ouvert au clic sur un chemin de fichier (vscode/cursor/zed)."""
         v = self._data.get("editor", "")
