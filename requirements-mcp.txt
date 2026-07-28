@@ -1,4 +1,8 @@
 # Dépendance du serveur MCP des logs (python -m taskpilot.mcp).
 # Séparée de requirements.txt pour ne PAS embarquer le SDK dans l'exe Qt :
 # le serveur MCP est lancé à part par le client (Zed, Claude Code…).
-mcp>=1.2
+# Borne haute volontaire : le SDK 2.0 a supprimé `mcp.server.fastmcp` (FastMCP
+# est devenu `MCPServer` dans `mcp.server.mcpserver`). Sans cette borne, une
+# installation neuve casse le serveur au démarrage. Lever la borne demande de
+# porter `taskpilot/mcp/__main__.py` sur la nouvelle API.
+mcp>=1.2,<2

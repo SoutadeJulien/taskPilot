@@ -10,7 +10,11 @@ processes on Windows.
   sequence), with **one embedded console per command**.
 - **Profiles** — group tasks from **several projects** (the "backend" of one,
   the "frontend" of another…) and launch everything in one click from the
-  *★ Profiles* button (managed via *Tasks ▸ Manage profiles…*).
+  *★ Profiles* button (managed via *Tasks ▸ Manage profiles…*). Tick a task in
+  the profile editor to make it **blocking**: the profile waits for it to exit
+  before starting the next ones, so a build can complete before the servers
+  that consume its output start. Only tick tasks that actually terminate
+  (builds, migrations) — never a server or a watcher.
 - **Scripts** — a third *⚙ Scripts* sub-tab (next to Tasks / Profiles) to write,
   name and run small **Python or Node** utility scripts (purge `node_modules`,
   list empty folders…) in an embedded console. Scripts run with the current
@@ -62,9 +66,12 @@ build.bat               # produces dist\TaskPilot.exe via PyInstaller (taskpilot
 ```
 
 The exe is self-contained (PySide6 + the `pywinpty`/`pyte` PTY bundled in), no
-installation required on the user's side. CI
-(`.github/workflows/build-release.yml`) builds it and publishes a release on
-every push to `master`.
+installation required on the user's side.
+
+Every push to `master` publishes a release with **two independent assets**
+(`.github/workflows/build-release.yml`): `TaskPilot.exe` (the app) and
+`TaskPilotMcp.exe` (the logs MCP server alone, see below). They are built in
+separate jobs with disjoint dependencies — neither carries the other's weight.
 
 ## Logs MCP server
 
@@ -75,16 +82,49 @@ demand*, which acts as an on/off switch — present in the client config = activ
 removed = inactive. No option in TaskPilot, no open port, nothing running
 permanently.
 
+The logs directory is resolved exactly as in the app (see `Config.log_dir`,
+default `%TEMP%\taskpilot-logs`). Exposed tools: `list_logs`, `read_log`,
+`tail_log`, `search_logs` (literal or regex).
+
+### Install it: `TaskPilotMcp.exe` (recommended)
+
+The MCP server ships as its **own asset**, separate from the application: every
+push to `master` publishes `TaskPilotMcp.exe` alongside `TaskPilot.exe` (see
+*Releases*). It is self-contained — no Python, no `mcp` SDK, no `PYTHONPATH` —
+and carries none of the Qt stack (~17 MB against ~50 MB for the app).
+
+Download it anywhere, then declare it in **Zed**'s `settings.json`:
+
+```json
+{
+  "context_servers": {
+    "taskpilot-logs": {
+      "command": "C:\\path\\to\\TaskPilotMcp.exe",
+      "args": []
+    }
+  }
+}
+```
+
+The two executables are independent: you can use the MCP server without ever
+installing the app (the logs directory is read from `~/.taskpilot.json`, falling
+back to `%TEMP%\taskpilot-logs`).
+
+> In Zed's *Add MCP Server* dialog, paste only the `"taskpilot-logs": { … }`
+> entry (a single key/value pair, without the `context_servers` wrapper). When
+> editing `settings.json` by hand, keep the full wrapper shown above.
+
+### Run it from the sources instead
+
 ```sh
 py -V:3.13 -m pip install -r requirements-mcp.txt   # the `mcp` SDK (Python ≥ 3.10)
 py -V:3.13 -m taskpilot.mcp                          # manual launch (debug)
 ```
 
-The logs directory is resolved exactly as in the app (see `Config.log_dir`,
-default `%TEMP%\taskpilot-logs`). Exposed tools: `list_logs`, `read_log`,
-`tail_log`, `search_logs` (literal or regex).
-
-Declaration in **Zed**'s `settings.json`:
+The corresponding client declaration needs the interpreter **≥ 3.10** that has
+the `mcp` SDK (`py -V:3.13 -c "import sys; print(sys.executable)"` to find it),
+plus `PYTHONPATH` pointing at the **repository root** so that `-m taskpilot.mcp`
+resolves:
 
 ```json
 {
@@ -98,21 +138,20 @@ Declaration in **Zed**'s `settings.json`:
 }
 ```
 
-Replace both paths with your own:
+> `requirements-mcp.txt` pins `mcp<2`: the 2.0 SDK removed `mcp.server.fastmcp`
+> (`FastMCP` became `MCPServer` in `mcp.server.mcpserver`). Lifting the pin
+> requires porting `taskpilot/mcp/__main__.py` to the new API.
 
-- `command` — the Python interpreter **≥ 3.10** to use (the one that has the
-  `mcp` SDK installed), e.g. `C:\\Python313\\python.exe`. To find it:
-  `py -V:3.13 -c "import sys; print(sys.executable)"`.
-- `env.PYTHONPATH` — the **repository root** of TaskPilot (the folder
-  containing `main.py` and the `taskpilot/` package), so that `-m taskpilot.mcp`
-  can be resolved.
+### Build it yourself
 
-> In Zed's *Add MCP Server* dialog, paste only the `"taskpilot-logs": { … }`
-> entry (a single key/value pair, without the `context_servers` wrapper). When
-> editing `settings.json` by hand, keep the full wrapper shown above.
+```sh
+build-mcp.bat            # -> dist\TaskPilotMcp.exe, then checks the stdio handshake
+```
 
-> The `mcp` SDK requires Python ≥ 3.10: use the 3.13 interpreter, not a
-> 3.7/3.9 one.
+`tools/smoke_mcp.py` replays a real client exchange (`initialize`, `tools/list`,
+a `list_logs` call) against the produced binary. CI runs it before publishing:
+a frozen server can build cleanly yet die on startup, and stdio gives no other
+signal.
 
 ## Architecture
 
