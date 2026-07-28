@@ -55,6 +55,9 @@ class TasksTab(QWidget):
         self.panels = []
         self._group_colors = dict(self.settings.get_group_colors())
         self._task_items = []          # (QTreeWidgetItem, label)
+        #: Libelle de l'etape bloquante en cours pendant un lancement de profil
+        #: (affiche dans la barre de statut), ``None`` sinon.
+        self.profile_status = None
 
         self._build()
         self._apply_label_styles()
@@ -521,13 +524,17 @@ class TasksTab(QWidget):
     def launch_task(self, label):
         self.launch_task_for(self.project, label, self.tasks_by_label)
 
-    def launch_task_for(self, project, label, tasks_by_label=None, warn=True):
+    def launch_task_for(self, project, label, tasks_by_label=None, warn=True,
+                        on_done=None):
         """Lance ``label`` dans ``project`` (pas forcement le projet courant).
 
         ``tasks_by_label`` evite de relire ``tasks.json`` quand il est deja
         connu (projet courant, ou cache d'un profil). Retourne ``True`` si la
         task a ete lancee. ``warn=False`` rend l'echec silencieux — l'appelant
         (lancement de profil) agrege alors lui-meme les erreurs.
+
+        ``on_done(ok)`` est appele quand tout l'arbre de la task s'est termine ;
+        il ne sera jamais appele si la task ne se termine pas (serveur, watch).
         """
         if not project:
             return False
@@ -567,13 +574,24 @@ class TasksTab(QWidget):
         # une *sequence* attend la fin de chaque etape, un groupe *parallel*
         # lance tous ses enfants simultanement.
         self._run_node(tree, (project, group, color, project_color),
-                       lambda ok: None)
+                       on_done or (lambda ok: None))
         return True
 
     # -- Profils (groupes de tasks multi-projets) ----------------------------
     def launch_profile(self, profile):
         """Lance toutes les tasks d'un profil, chaque projet n'etant lu qu'une
-        fois. Les tasks introuvables sont signalees groupees en fin."""
+        fois. Les tasks introuvables sont signalees groupees en fin.
+
+        Un item marque ``"wait": true`` est *bloquant* : les items suivants
+        n'ont lieu qu'une fois son process termine. Les items non bloquants
+        partent tous ensemble. Ca reproduit le ``prestart`` puis
+        ``start-services`` des monorepos : construire les libs avant de lancer
+        les serveurs qui les consomment.
+
+        Le code de sortie d'une etape bloquante est ignore : reussite ou echec,
+        le profil poursuit. Diagnostiquer l'echec revient a la task, pas a
+        TaskPilot — la console reste ouverte pour ca.
+        """
         items = profile.get("items", [])
         if not items:
             QMessageBox.information(
@@ -581,26 +599,55 @@ class TasksTab(QWidget):
                 f"Le profil « {profile.get('name', '')} » ne contient "
                 "aucune task.")
             return
-        cache = {}
-        launched, errors = 0, []
-        for it in items:
-            project, label = it.get("project", ""), it.get("label", "")
-            tbl = cache.get(project)
-            if tbl is None:
-                try:
-                    tbl = {task_label(t): t for t in load_vscode_tasks(project)}
-                except Exception:  # noqa: BLE001
-                    tbl = {}
-                cache[project] = tbl
-            if self.launch_task_for(project, label, tbl, warn=False):
-                launched += 1
-            else:
-                errors.append(f"{os.path.basename(os.path.normpath(project))} › {label}")
-        if errors:
-            QMessageBox.warning(
-                self, "Profil partiellement lancé",
-                f"{launched} task(s) lancée(s).\n\nNon lancées :\n- "
-                + "\n- ".join(errors))
+        state = {"cache": {}, "launched": 0, "errors": []}
+
+        def run_from(index):
+            i = index
+            while i < len(items):
+                it = items[i]
+                if it.get("wait"):
+                    # Bloquant : on rend la main, la suite reprend dans le
+                    # callback de fin (ou jamais, si la task ne se termine
+                    # pas — d'ou le caractere opt-in du drapeau).
+                    self.profile_status = it.get("label", "")
+                    if self._launch_profile_item(
+                            it, state, on_done=lambda _ok, n=i + 1: run_from(n)):
+                        return
+                    self.profile_status = None   # introuvable : rien a attendre
+                else:
+                    self._launch_profile_item(it, state)
+                i += 1
+            self.profile_status = None
+            self._report_profile_errors(state)
+
+        run_from(0)
+
+    def _launch_profile_item(self, item, state, on_done=None):
+        """Lance un item de profil. ``state`` porte le cache de ``tasks.json``
+        par projet, le compteur de lancements et les erreurs agregees."""
+        project, label = item.get("project", ""), item.get("label", "")
+        tbl = state["cache"].get(project)
+        if tbl is None:
+            try:
+                tbl = {task_label(t): t for t in load_vscode_tasks(project)}
+            except Exception:  # noqa: BLE001
+                tbl = {}
+            state["cache"][project] = tbl
+        if self.launch_task_for(project, label, tbl, warn=False,
+                                on_done=on_done):
+            state["launched"] += 1
+            return True
+        state["errors"].append(
+            f"{os.path.basename(os.path.normpath(project))} › {label}")
+        return False
+
+    def _report_profile_errors(self, state):
+        if not state["errors"]:
+            return
+        QMessageBox.warning(
+            self, "Profil partiellement lancé",
+            f"{state['launched']} task(s) lancée(s).\n\nNon lancées :\n- "
+            + "\n- ".join(state["errors"]))
 
     def manage_profiles(self):
         from taskpilot.qt.profiles import ProfilesDialog

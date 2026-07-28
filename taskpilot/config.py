@@ -100,10 +100,12 @@ class Config:
 
     # -- Profils : groupes de tasks multi-projets ----------------------------
     def get_profiles(self):
-        """Liste des profils ``[{name, items:[{project, label}]}]``.
+        """Liste des profils ``[{name, items:[{project, label, wait?}]}]``.
 
         Un profil regroupe des tasks issues de n'importe quel projet, lançables
-        toutes ensemble en un clic. Filtre les entrées malformées.
+        toutes ensemble en un clic. Filtre les entrées malformées. ``wait``
+        (optionnel) marque une étape bloquante : le lancement du profil attend
+        sa fin avant d'enchaîner sur la suivante.
         """
         raw = self._data.get("profiles", [])
         if not isinstance(raw, list):
@@ -122,7 +124,10 @@ class Config:
                 project, label = it.get("project"), it.get("label")
                 if isinstance(project, str) and isinstance(label, str) \
                         and project and label:
-                    items.append({"project": project, "label": label})
+                    entry = {"project": project, "label": label}
+                    if it.get("wait"):
+                        entry["wait"] = True
+                    items.append(entry)
             out.append({"name": name.strip(), "items": items})
         return out
 
@@ -133,11 +138,15 @@ class Config:
             name = (prof.get("name") or "").strip()
             if not name:
                 continue
-            items = [
-                {"project": it["project"], "label": it["label"]}
-                for it in prof.get("items", [])
-                if it.get("project") and it.get("label")
-            ]
+            items = []
+            for it in prof.get("items", []):
+                if not (it.get("project") and it.get("label")):
+                    continue
+                entry = {"project": it["project"], "label": it["label"]}
+                if it.get("wait"):
+                    # Etape bloquante : le profil attend sa fin avant la suite.
+                    entry["wait"] = True
+                items.append(entry)
             clean.append({"name": name, "items": items})
         self._data["profiles"] = clean
         self._save()

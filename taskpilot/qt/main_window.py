@@ -398,6 +398,9 @@ class MainWindow(QMainWindow):
         count = getattr(self.process_tab, "process_count", None)
         if count is not None:
             segs.append(f"☰ {count} process Node")
+        pending = getattr(self.tasks_tab, "profile_status", None)
+        if pending:
+            segs.append(f"⏳ profil : attente de « {pending} »")
         self._status_label.setText("      •      ".join(segs))
 
     def _add(self, menu, text, slot, shortcut=None):

@@ -3,6 +3,11 @@
 Un *profil* est une liste ordonnee de tasks (chacune ``{project, label}``)
 lancables ensemble. Les tasks peuvent provenir de projets differents — c'est
 tout l'interet : reunir « backend » d'un projet, « frontend » d'un autre, etc.
+
+Un item peut porter ``"wait": true`` : le profil attend alors la fin de son
+process avant de lancer la suite. A n'utiliser que pour les etapes qui se
+terminent vraiment (build, migration) — jamais pour un serveur ou un watcher,
+qui bloquerait le reste du profil.
 """
 
 import os
@@ -157,7 +162,13 @@ class ProfilesDialog(QDialog):
         col = QVBoxLayout()
         col.addWidget(QLabel("Tasks du profil"))
         self._ilist = QListWidget()
+        self._ilist.itemChanged.connect(self._on_item_checked)
         col.addWidget(self._ilist, 1)
+        hint = QLabel("Coché = attendre la fin de cette task avant de lancer "
+                      "la suite (build, migration…). À ne pas cocher sur un "
+                      "serveur ou un watch : ils ne se terminent jamais.")
+        hint.setWordWrap(True)
+        col.addWidget(hint)
         bar = QHBoxLayout()
         add = QPushButton("Ajouter des tasks…")
         add.clicked.connect(self._add_items)
@@ -231,15 +242,33 @@ class ProfilesDialog(QDialog):
 
     # -- Tasks d'un profil ---------------------------------------------------
     def _refresh_items(self):
+        self._ilist.blockSignals(True)
         self._ilist.clear()
         prof = self._current_profile()
         if prof is None:
+            self._ilist.blockSignals(False)
             return
         for it in prof["items"]:
             text = f"{_proj_name(it['project'])}  ›  {it['label']}"
             row = QListWidgetItem(text)
             row.setToolTip(it["project"])
+            row.setFlags(row.flags() | Qt.ItemIsUserCheckable)
+            row.setCheckState(Qt.Checked if it.get("wait") else Qt.Unchecked)
             self._ilist.addItem(row)
+        self._ilist.blockSignals(False)
+
+    def _on_item_checked(self, item):
+        """Bascule le drapeau ``wait`` de l'item coche/decoche."""
+        prof = self._current_profile()
+        row = self._ilist.row(item)
+        if prof is None or not (0 <= row < len(prof["items"])):
+            return
+        wait = item.checkState() == Qt.Checked
+        if wait:
+            prof["items"][row]["wait"] = True
+        else:
+            prof["items"][row].pop("wait", None)
+        self._save()
 
     def _add_items(self):
         prof = self._current_profile()
