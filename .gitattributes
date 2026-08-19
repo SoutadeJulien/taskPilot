@@ -9,6 +9,9 @@
 
 *.sh        text eol=lf
 *.desktop   text eol=lf
+# Lu par un `grep` dans les scripts de build : un CR final collerait aux noms
+# de paquets passes a apt-get.
+packaging/linux-deps.txt text eol=lf
 
 *.bat       text eol=crlf
 *.cmd       text eol=crlf

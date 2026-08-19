@@ -1,0 +1,33 @@
+# Bibliotheques systeme a installer sur la machine de build Linux AVANT
+# PyInstaller. Elles ne sont pas fournies par la roue PySide6 : Qt les charge
+# depuis le systeme, et PyInstaller ne peut les embarquer que s'il les trouve
+# a l'analyse.
+#
+# Sans elles, le binaire produit se compile parfaitement puis refuse de
+# demarrer sur tout bureau X11 :
+#
+#   qt.qpa.plugin: From 6.5.0, xcb-cursor0 or libxcb-cursor0 is needed to load
+#   the Qt xcb platform plugin.
+#   Could not load the Qt platform plugin "xcb" in "" even though it was found.
+#
+# Ce sont les dependances de PySide6/Qt/plugins/platforms/libqxcb.so.
+# `ldd` sur ce fichier apres un build permet de verifier qu'il ne reste plus
+# aucun « not found ».
+libxcb-cursor0
+libxcb-icccm4
+libxcb-image0
+libxcb-keysyms1
+libxcb-randr0
+libxcb-render-util0
+libxcb-shape0
+libxcb-sync1
+libxcb-util1
+libxcb-xfixes0
+libxcb-xinerama0
+libxcb-xkb1
+libxkbcommon-x11-0
+# Fond de teint commun : rendu logiciel OpenGL et bus de session.
+libegl1
+libgl1
+libdbus-1-3
+libfontconfig1

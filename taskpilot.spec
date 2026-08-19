@@ -13,6 +13,13 @@ block_cipher = None
 
 IS_WIN = os.name == "nt"
 
+# Mode « un dossier » au lieu de l'executable unique, active par
+# TASKPILOT_ONEDIR=1. Sert a construire l'AppImage (cf.
+# packaging/build-appimage.sh) : un binaire onefile dans une AppImage se
+# ferait extraire deux fois a chaque lancement — plusieurs secondes de
+# demarrage pour ~80 Mo — alors qu'un AppDir monte les fichiers directement.
+ONEDIR = os.environ.get("TASKPILOT_ONEDIR") == "1"
+
 # Le backend PTY est different selon la plateforme et embarque des ressources
 # que PyInstaller ne trouve pas seul : pywinpty a des binaires natifs
 # (OpenConsole.exe / winpty-agent.exe + DLL), ptyprocess un module pur mais
@@ -47,10 +54,9 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
+    *([] if ONEDIR else [a.binaries, a.zipfiles, a.datas]),
     [],
+    exclude_binaries=ONEDIR,
     name="TaskPilot",
     debug=False,
     bootloader_ignore_signals=False,
@@ -67,3 +73,15 @@ exe = EXE(
     # vient du fichier .desktop (packaging/taskpilot.desktop).
     icon="taskpilot/assets/icon.ico" if IS_WIN else None,
 )
+
+if ONEDIR:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name="TaskPilot",
+    )

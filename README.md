@@ -71,9 +71,13 @@ right one).
 
 ### Linux specifics
 
-- **Desktop entry** — `./packaging/install-desktop.sh` adds TaskPilot to the
-  application menu (and installs the icon) for the current user. It targets
-  `dist/TaskPilot` if you built it, `start.sh` otherwise.
+- **Install** — grab `TaskPilot-x86_64.AppImage` from the releases, `chmod +x`,
+  run. It carries its own desktop entry and icon, and every Qt/xcb library it
+  needs, so there is nothing to install. Requires **glibc ≥ 2.35** (Ubuntu
+  22.04+, Debian 12+, Fedora 36+, RHEL 9+). A bare binary
+  (`TaskPilot-linux-x86_64`) is published too; `./packaging/install-desktop.sh`
+  adds it to the application menu for the current user (it targets
+  `dist/TaskPilot` if you built it, `start.sh` otherwise).
 - **Optional tools** — the *Process* tab reads `/proc` directly, so no external
   tool is needed for the process list. Listening ports come from `ss`
   (iproute2, present on every mainstream distribution) with `lsof` as a
@@ -88,21 +92,40 @@ right one).
 ## Building the standalone executable
 
 ```sh
-build.bat               # Windows -> dist\TaskPilot.exe   (PyInstaller, taskpilot.spec)
-./build.sh              # Unix    -> dist/TaskPilot        (same spec)
+build.bat                        # Windows -> dist\TaskPilot.exe
+./build.sh                       # Unix    -> dist/TaskPilot
+./packaging/build-appimage.sh    # Linux   -> dist/TaskPilot-x86_64.AppImage
 ```
 
 The binary is self-contained (PySide6 + the platform PTY + `pyte` bundled in),
 no installation required on the user's side. `taskpilot.spec` collects only the
-PTY backend of the machine it builds on.
+PTY backend of the machine it builds on, and switches to a one-folder layout
+when `TASKPILOT_ONEDIR=1` (what the AppImage is built from — a one-file binary
+inside an AppImage would be extracted twice on every launch).
 
-Every push to `master` publishes a release with **four assets**
-(`.github/workflows/build-release.yml`): the app and the logs MCP server (see
-below), each for Windows and Linux. They are built in separate jobs with
-disjoint dependencies — neither carries the other's weight. A `portability` job
-runs first on Linux: it byte-compiles the project and exercises the platform
-layer (PTY backend resolvable, shells detected, process inventory non-empty),
-so a Windows-only regression fails the build instead of shipping.
+Two Linux packaging constraints are worth knowing before touching the build:
+
+- **Qt's xcb libraries are not in the PySide6 wheel.** Qt loads them from the
+  system, so PyInstaller can only bundle them if they are installed on the
+  build machine — see `packaging/linux-deps.txt`. Without them the binary
+  compiles cleanly and then refuses to start on any X11 desktop
+  (`Could not load the Qt platform plugin "xcb"`). CI installs them, then
+  `ldd`-checks the bundled `libqxcb.so` and boots the app under Xvfb, because
+  the plugin is `dlopen`ed: nothing else would catch a missing library before
+  the user's desktop does.
+- **glibc sets the floor.** A PyInstaller binary requires at least the glibc of
+  its build machine. The Linux jobs therefore run on `ubuntu-22.04`, not
+  `ubuntu-latest`: built on 24.04 the binary demands glibc 2.38 and will not
+  start on Ubuntu 22.04, Debian 12 or RHEL 9.
+
+Every push to `master` publishes a release with **five assets**
+(`.github/workflows/build-release.yml`): `TaskPilot.exe`, the Linux AppImage,
+the bare Linux binary, and the logs MCP server (see below) for both platforms.
+They are built in separate jobs with disjoint dependencies — neither carries
+the other's weight. A `portability` job runs first on Linux: it byte-compiles
+the project and exercises the platform layer (PTY backend resolvable, shells
+detected, process inventory non-empty), so a Windows-only regression fails the
+build instead of shipping.
 
 ## Logs MCP server
 
