@@ -1,7 +1,9 @@
 # TaskPilot
 
 Graphical tool (PySide6 / Qt) to drive VS Code tasks and monitor Node
-processes on Windows.
+processes. Runs on **Windows, Linux and macOS** — each platform-specific piece
+(PTY, process inventory, tree kill, notifications, shells) has a native backend
+behind a single abstraction layer, `taskpilot/core/system.py`.
 
 ## Features
 
@@ -34,12 +36,16 @@ processes on Windows.
   explicitly with `console.log("#json", obj)` — the marker is stripped from the
   display and forces the mode for the whole block (`#json`, `#yaml`, `#xml`).
   Toggle in *Console ▸ Colour data*.
-- **Reliable tree kill** — each task runs in a Windows *Job Object* configured
-  with `KILL_ON_JOB_CLOSE`: stopping it kills the whole child process tree,
-  where the VS Code trash can often leaves orphan processes behind.
-- **Native notifications** — Windows toast when a task finishes (or fails),
-  handy when the window is in the background; configurable in *Options ▸
-  Behavior*.
+- **Reliable tree kill** — stopping a task kills its whole child process tree,
+  where the VS Code trash can often leaves orphan processes behind. On Windows
+  each task runs in a *Job Object* configured with `KILL_ON_JOB_CLOSE`; on
+  Unix it gets its own session (`start_new_session`) and the whole process
+  group is signalled. Killing an arbitrary PID from the *Process* tab walks the
+  process tree instead — an unrelated PID is not necessarily alone in its group.
+- **Native notifications** — a desktop notification when a task finishes (or
+  fails), handy when the window is in the background; configurable in *Options ▸
+  Behavior*. Routed through the notification area when the desktop has one, and
+  through `notify-send` otherwise (GNOME/Wayland no longer expose a tray).
 - **Process tab** — real-time list of Node processes (port, PID, CPU %,
   memory, command line), with a **trend sparkline** (area = CPU, line = memory)
   per process, sorting by column, selective or global kill.
@@ -50,28 +56,53 @@ processes on Windows.
 ## Running
 
 ```sh
-python main.py          # or double-click start.bat (creates the .venv if needed)
+python main.py          # or double-click start.bat / run ./start.sh
 python -m taskpilot     # equivalent
 ```
 
+`start.bat` (Windows) and `start.sh` (Unix) create the `.venv` and install the
+dependencies on first run.
+
 Requirements: **Python ≥ 3.9** (tested with 3.13) and the dependencies from
-`requirements.txt` (`PySide6`, `pywinpty`, `pyte`). The tree-kill feature uses
-`ctypes` (stdlib) and is fully effective only on Windows; a process-group
-fallback exists for Linux/macOS.
+`requirements.txt` — `PySide6`, `pyte`, plus the PTY backend for the platform
+(`pywinpty` on Windows, `ptyprocess` elsewhere; both are guarded by an
+environment marker, so `pip install -r requirements.txt` installs only the
+right one).
+
+### Linux specifics
+
+- **Desktop entry** — `./packaging/install-desktop.sh` adds TaskPilot to the
+  application menu (and installs the icon) for the current user. It targets
+  `dist/TaskPilot` if you built it, `start.sh` otherwise.
+- **Optional tools** — the *Process* tab reads `/proc` directly, so no external
+  tool is needed for the process list. Listening ports come from `ss`
+  (iproute2, present on every mainstream distribution) with `lsof` as a
+  fallback; without either, the *Port* column stays empty and nothing else is
+  affected. `xdg-open` powers *Open the logs folder* / *Open the project
+  folder*, and `notify-send` (libnotify) the notifications under GNOME.
+- **Fonts** — the defaults are per-platform lists of fallbacks (Cantarell, Noto
+  Sans, DejaVu Sans… for the UI; JetBrains Mono, Noto Sans Mono, DejaVu Sans
+  Mono… for consoles): the first family actually installed wins. Override them
+  in *Appearance ▸ Font*.
 
 ## Building the standalone executable
 
 ```sh
-build.bat               # produces dist\TaskPilot.exe via PyInstaller (taskpilot.spec)
+build.bat               # Windows -> dist\TaskPilot.exe   (PyInstaller, taskpilot.spec)
+./build.sh              # Unix    -> dist/TaskPilot        (same spec)
 ```
 
-The exe is self-contained (PySide6 + the `pywinpty`/`pyte` PTY bundled in), no
-installation required on the user's side.
+The binary is self-contained (PySide6 + the platform PTY + `pyte` bundled in),
+no installation required on the user's side. `taskpilot.spec` collects only the
+PTY backend of the machine it builds on.
 
-Every push to `master` publishes a release with **two independent assets**
-(`.github/workflows/build-release.yml`): `TaskPilot.exe` (the app) and
-`TaskPilotMcp.exe` (the logs MCP server alone, see below). They are built in
-separate jobs with disjoint dependencies — neither carries the other's weight.
+Every push to `master` publishes a release with **four assets**
+(`.github/workflows/build-release.yml`): the app and the logs MCP server (see
+below), each for Windows and Linux. They are built in separate jobs with
+disjoint dependencies — neither carries the other's weight. A `portability` job
+runs first on Linux: it byte-compiles the project and exercises the platform
+layer (PTY backend resolvable, shells detected, process inventory non-empty),
+so a Windows-only regression fails the build instead of shipping.
 
 ## Logs MCP server
 
@@ -145,8 +176,11 @@ resolves:
 ### Build it yourself
 
 ```sh
-build-mcp.bat            # -> dist\TaskPilotMcp.exe, then checks the stdio handshake
+build-mcp.bat            # Windows -> dist\TaskPilotMcp.exe
+./build-mcp.sh           # Unix    -> dist/TaskPilotMcp
 ```
+
+Both then check the stdio handshake before declaring success.
 
 `tools/smoke_mcp.py` replays a real client exchange (`initialize`, `tools/list`,
 a `list_logs` call) against the produced binary. CI runs it before publishing:
@@ -161,13 +195,15 @@ Strict separation between business logic and presentation:
 taskpilot/
 ├── config.py            Persistence of the user config (~/.taskpilot.json)
 ├── core/                Business logic — NO dependency on the UI
-│   ├── system.py        Platform flags (IS_WIN, NCPU, NO_WINDOW)
+│   ├── system.py        Platform layer: spawn flags, shells, kill, fonts, opener
+│   ├── pty_backend.py   Uniform PTY (ConPTY/pywinpty vs Unix/ptyprocess)
 │   ├── processes.py     Detection / kill of Node processes (NodeProcess model)
 │   ├── jobobject.py     Windows Job Object (tree kill via ctypes)
 │   ├── vscode_tasks.py  tasks.json parsing + CommandSpec / TaskNode models
 │   └── task_runner.py   TaskConsole: process + output capture + kill
 ├── mcp/                 Logs MCP server (read-only, launched separately)
 └── qt/                  Presentation (PySide6 / Qt)
+    ├── assets.py        Embedded resources (application icon)
     ├── theme.py         Palettes, QSS, live theme switching
     ├── main_window.py   Main window, menus, status bar
     ├── tasks_tab.py     Tasks tab
@@ -182,3 +218,9 @@ taskpilot/
 The `core` layer is testable and reusable independently of the UI: it
 communicates with the UI only through plain objects (dataclasses) and a
 `queue.Queue` for the console output stream.
+
+Platform differences are concentrated in **`core/system.py`** (and, for the two
+cases too large to fit there, `core/pty_backend.py` and the per-OS backends of
+`core/processes.py`). No other module tests the OS: porting to a new platform
+means extending those three files, not hunting for `if IS_WIN` across the
+codebase.

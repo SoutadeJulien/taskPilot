@@ -3,6 +3,8 @@
 import json
 import os
 
+from taskpilot.core.system import DEFAULT_MONO_FONT, DEFAULT_UI_FONT
+
 
 class Config:
     """Petit conteneur JSON persiste dans le repertoire personnel.
@@ -418,7 +420,7 @@ class Config:
     @property
     def ui_font_family(self):
         v = self._data.get("ui_font_family", "")
-        return v if isinstance(v, str) and v else "Segoe UI"
+        return v if isinstance(v, str) and v else DEFAULT_UI_FONT
 
     @ui_font_family.setter
     def ui_font_family(self, value):
@@ -436,7 +438,7 @@ class Config:
     @property
     def mono_font_family(self):
         v = self._data.get("mono_font_family", "")
-        return v if isinstance(v, str) and v else "Cascadia Mono, Consolas"
+        return v if isinstance(v, str) and v else DEFAULT_MONO_FONT
 
     @mono_font_family.setter
     def mono_font_family(self, value):

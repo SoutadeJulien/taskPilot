@@ -11,6 +11,8 @@ import re
 import shutil
 import tempfile
 
+from taskpilot.core.system import open_in_file_manager
+
 #: Dossier des logs par défaut, sous le répertoire temporaire de l'OS.
 DEFAULT_LOG_DIR = os.path.join(tempfile.gettempdir(), "taskpilot-logs")
 
@@ -78,9 +80,6 @@ def new_log_path(label: str):
 
 
 def open_log_dir():
-    """Ouvre le dossier des logs dans l'explorateur de fichiers (Windows)."""
+    """Ouvre le dossier des logs dans l'explorateur de fichiers du bureau."""
     ensure_log_dir()
-    try:
-        os.startfile(LOG_DIR)  # noqa: S606 (Windows uniquement)
-    except (OSError, AttributeError):
-        pass
+    open_in_file_manager(LOG_DIR)

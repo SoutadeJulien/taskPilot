@@ -1,0 +1,17 @@
+# Normalisation des fins de ligne.
+#
+# Le depot est developpe sous Windows avec core.autocrlf=true : sans regle
+# explicite, les scripts shell seraient extraits en CRLF sous Linux et le
+# noyau echouerait sur le shebang (« bad interpreter: /usr/bin/env bash^M »).
+# On force donc LF pour tout ce qui est lu par un interpreteur Unix, et CRLF
+# pour les scripts batch, que cmd.exe attend ainsi.
+* text=auto
+
+*.sh        text eol=lf
+*.desktop   text eol=lf
+
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+*.ico       binary
+*.png       binary

@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=TaskPilot
+GenericName=Task runner
+Comment=Piloter les tasks VS Code et surveiller les process Node
+# Renseigne par install-desktop.sh. Les guillemets sont ceux de la norme
+# freedesktop : sans eux, un chemin contenant une espace serait decoupe.
+Exec="@EXEC@"
+Icon=taskpilot
+Terminal=false
+Categories=Development;IDE;
+Keywords=task;vscode;node;terminal;
+# X11 : Qt met applicationName (« TaskPilot ») dans la classe WM_CLASS.
+# Wayland : l'association se fait par l'app_id, egal au nom de ce fichier
+# (« taskpilot ») grace a setDesktopFileName dans qt/app.py.
+StartupWMClass=TaskPilot

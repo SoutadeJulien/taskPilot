@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 
-from taskpilot.core.system import IS_WIN, NO_WINDOW
+from taskpilot.core.system import IS_WIN, spawn_kwargs
 
 #: Editeurs supportes : cle -> (nom affiche, commande shell, drapeau ``-g``).
 #: ``goto`` indique d'utiliser ``-g`` (VS Code / Cursor) ; Zed accepte la cible
@@ -111,9 +111,9 @@ def open_in_editor(key, path, line=None, col=None, cwd=None):
         if IS_WIN and exe.lower().endswith((".cmd", ".bat")):
             # Les shims .cmd ne sont pas executables par CreateProcess : on
             # passe par cmd.exe (la forme liste gere le quoting des espaces).
-            subprocess.Popen(["cmd", "/c", exe, *args], creationflags=NO_WINDOW)
+            subprocess.Popen(["cmd", "/c", exe, *args], **spawn_kwargs())
         else:
-            subprocess.Popen([exe, *args], creationflags=NO_WINDOW)
+            subprocess.Popen([exe, *args], **spawn_kwargs())
     except OSError as e:
         return False, f"Impossible de lancer {spec['name']} : {e}"
     return True, ""

@@ -1,23 +1,30 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Spec PyInstaller pour TaskPilot : un seul .exe autonome, sans console.
+"""Spec PyInstaller pour TaskPilot : un seul executable autonome, sans console.
 
-Build :  pyinstaller taskpilot.spec   (ou lancer build.bat)
-Sortie :  dist/TaskPilot.exe
+Build :  pyinstaller taskpilot.spec   (ou lancer build.bat / build.sh)
+Sortie :  dist/TaskPilot.exe (Windows) ou dist/TaskPilot (Linux, macOS)
 """
+
+import os
 
 from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
-# pywinpty embarque des binaires natifs (OpenConsole.exe / winpty-agent.exe +
-# DLL) et pyte ses modules : on collecte tout pour que le terminal fonctionne
-# dans l'exe autonome. ATTENTION : collect_all renvoie (datas, binaries,
-# hiddenimports) DANS CET ORDRE — toute inversion casse le bundling du PTY.
-# PySide6 (interface Qt) est embarque par le hook PyInstaller du module, tire
-# automatiquement par l'import dans main.py.
-_pty_d, _pty_b, _pty_h = collect_all("winpty")
+IS_WIN = os.name == "nt"
+
+# Le backend PTY est different selon la plateforme et embarque des ressources
+# que PyInstaller ne trouve pas seul : pywinpty a des binaires natifs
+# (OpenConsole.exe / winpty-agent.exe + DLL), ptyprocess un module pur mais
+# importe dynamiquement. On ne collecte QUE celui de la plateforme courante :
+# collecter l'autre echouerait, il n'y est pas installe (cf. requirements.txt).
+# ATTENTION : collect_all renvoie (datas, binaries, hiddenimports) DANS CET
+# ORDRE — toute inversion casse le bundling du PTY.
+_pty_d, _pty_b, _pty_h = collect_all("winpty" if IS_WIN else "ptyprocess")
 _pyte_d, _pyte_b, _pyte_h = collect_all("pyte")
 
+# PySide6 (interface Qt) est embarque par le hook PyInstaller du module, tire
+# automatiquement par l'import dans main.py.
 a = Analysis(
     ["main.py"],
     pathex=[],
@@ -56,5 +63,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="taskpilot/assets/icon.ico",
+    # L'icone .ico n'a de sens que pour un binaire PE : hors Windows, l'icone
+    # vient du fichier .desktop (packaging/taskpilot.desktop).
+    icon="taskpilot/assets/icon.ico" if IS_WIN else None,
 )

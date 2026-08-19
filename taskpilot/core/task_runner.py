@@ -4,15 +4,14 @@
 dans une ``queue.Queue`` que la couche UI draine a son rythme.
 """
 
-import os
 import queue
 import re
-import signal
 import subprocess
 import threading
 
 from taskpilot.core.jobobject import JobObject
-from taskpilot.core.system import IS_WIN, NO_WINDOW
+from taskpilot.core.system import (
+    IS_WIN, kill_session, kill_tree_win, spawn_kwargs)
 from taskpilot.core.vscode_tasks import CommandSpec
 
 #: Sequences d'echappement ANSI a retirer de la sortie affichee.
@@ -45,7 +44,6 @@ class TaskConsole:
     # -- Cycle de vie --------------------------------------------------------
     def start(self) -> bool:
         """Lance le process et demarre la lecture de sa sortie."""
-        preexec = None if IS_WIN else os.setsid  # groupe de process (Unix)
         try:
             self.proc = subprocess.Popen(
                 self.spec.argv,
@@ -54,9 +52,10 @@ class TaskConsole:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.PIPE if self.interactive else subprocess.DEVNULL,
-                creationflags=NO_WINDOW,
-                preexec_fn=preexec,
                 bufsize=0,
+                # Hors Windows, le process devient chef de sa propre session :
+                # ``kill`` peut alors emporter toute sa descendance.
+                **spawn_kwargs(new_group=True),
             )
         except Exception as e:  # noqa: BLE001
             self.queue.put((EVENT_OUTPUT, f"⚠ Echec du lancement : {e}\n"))
@@ -159,28 +158,9 @@ class TaskConsole:
         if IS_WIN:
             if self.job:
                 self.job.terminate(1)      # tue tout le Job (arbre complet)
-            self._taskkill_tree()          # filet de securite
+            kill_tree_win(self.proc.pid)   # filet de securite
         else:
-            self._killpg()
-
-    def _taskkill_tree(self):
-        try:
-            subprocess.call(
-                ["taskkill", "/F", "/T", "/PID", str(self.proc.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=NO_WINDOW,
-            )
-        except Exception:
-            pass
-
-    def _killpg(self):
-        try:
-            os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
-        except Exception:
-            try:
-                self.proc.kill()
-            except Exception:
-                pass
+            kill_session(self.proc.pid)    # equivalent Unix du Job Object
 
     def cleanup(self):
         """Libere le handle du Job Object."""

@@ -16,11 +16,23 @@ from PySide6.QtWidgets import (
 from taskpilot import __version__
 from taskpilot.core import editors, logs
 from taskpilot.qt import theme
+from taskpilot.qt.assets import app_icon
 from taskpilot.qt.notify import Notifier
 from taskpilot.qt.process_tab import ProcessTab
 from taskpilot.qt.tasks_tab import TasksTab
 
-ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+
+def _font_label(value):
+    """Libelle de menu d'une police.
+
+    Les valeurs par defaut sont des listes de familles de repli (« Cantarell,
+    Noto Sans, DejaVu Sans… ») : on n'affiche que la premiere, suivie de
+    « auto » pour signaler que Qt prendra la premiere reellement installee.
+    """
+    text = str(value)
+    if "," in text:
+        return f"{text.split(',')[0].strip()} (auto)"
+    return text
 
 
 def _color_icon(color):
@@ -37,9 +49,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("TaskPilot")
         self.resize(1024, 620)
         self.setMinimumSize(720, 420)
-        icon_path = os.path.join(ASSETS, "icon.ico")
-        if os.path.isfile(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        self.setWindowIcon(app_icon())
 
         logs.set_log_dir(settings.log_dir)
         logs.clean_log_dir()
@@ -279,9 +289,8 @@ class MainWindow(QMainWindow):
         group = QActionGroup(self)
         group.setExclusive(True)
         for value in choices:
-            label = str(value)
-            act = QAction(label, self, checkable=True)
-            act.setChecked(str(active) == label)
+            act = QAction(_font_label(value), self, checkable=True)
+            act.setChecked(str(active) == str(value))
             act.triggered.connect(lambda _=False, v=value: slot(v))
             group.addAction(act)
             menu.addAction(act)

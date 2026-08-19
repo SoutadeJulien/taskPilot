@@ -1,12 +1,24 @@
-"""Detection, formatage et destruction des process Node."""
+"""Detection, formatage et destruction des process Node.
+
+Chaque OS a son propre backend d'inventaire, choisi par ``_all_processes`` :
+
+* **Windows** — ``wmic``, avec repli PowerShell/CIM (``wmic`` a disparu des
+  Windows recents) ;
+* **Linux** — lecture directe de ``/proc`` (aucun process externe a lancer, et
+  un temps CPU precis au tick pres la ou ``ps`` arrondit a la seconde) ;
+* **macOS / BSD** — ``ps``, seul denominateur commun.
+
+Le reste du module est independant de la plateforme : il ne manipule que la
+table ``pid -> {ppid, name, cmd, mem, cpu_time}`` produite par ces backends.
+"""
 
 import os
-import signal
-import subprocess
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from taskpilot.core.system import IS_WIN, NO_WINDOW
+from taskpilot.core.system import (
+    IS_LINUX, IS_WIN, kill_pid, kill_tree_win, run_quiet)
 
 
 @dataclass
@@ -29,46 +41,88 @@ class NodeProcess:
     task: Optional[str] = None            # libelle de la task d'appartenance
 
 
+# ---------------------------------------------------------------------------
+# Ports en ecoute
+# ---------------------------------------------------------------------------
 def get_listening_ports():
-    """Mappe ``pid -> [ports]`` pour les sockets TCP en ecoute."""
-    ports = {}
-    try:
-        if IS_WIN:
-            out = subprocess.check_output(
-                ["netstat", "-ano", "-p", "TCP"],
-                text=True, errors="replace", stderr=subprocess.DEVNULL,
-                creationflags=NO_WINDOW,
-            )
-            for line in out.splitlines():
-                parts = line.split()
-                if len(parts) < 5 or parts[0].upper() != "TCP":
-                    continue
-                if parts[3].upper() != "LISTENING":
-                    continue
-                local, pid = parts[1], parts[-1]
-                if not pid.isdigit():
-                    continue
-                port = local.rsplit(":", 1)[-1]
-                if port.isdigit():
-                    ports.setdefault(int(pid), set()).add(int(port))
-        else:
-            out = subprocess.check_output(
-                ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"],
-                text=True, errors="replace", stderr=subprocess.DEVNULL,
-            )
-            for line in out.splitlines()[1:]:
-                fields = line.split()
-                if len(fields) < 9 or not fields[1].isdigit():
-                    continue
-                pid = int(fields[1])
-                port = fields[8].rsplit(":", 1)[-1]
-                if port.isdigit():
-                    ports.setdefault(pid, set()).add(int(port))
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return {}
+    """Mappe ``pid -> [ports]`` pour les sockets TCP en ecoute.
+
+    Sous Unix, seuls les sockets des process de l'utilisateur courant exposent
+    leur PID (restriction du noyau, valable pour ``ss`` comme pour ``lsof``) :
+    c'est sans consequence ici, ou l'on observe des serveurs de dev lances par
+    l'utilisateur.
+    """
+    ports = _ports_windows() if IS_WIN else _ports_unix()
     return {pid: sorted(s) for pid, s in ports.items()}
 
 
+def _ports_windows() -> dict:
+    ports = {}
+    out = run_quiet(["netstat", "-ano", "-p", "TCP"])
+    if not out:
+        return ports
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0].upper() != "TCP":
+            continue
+        if parts[3].upper() != "LISTENING":
+            continue
+        local, pid = parts[1], parts[-1]
+        if not pid.isdigit():
+            continue
+        port = local.rsplit(":", 1)[-1]
+        if port.isdigit():
+            ports.setdefault(int(pid), set()).add(int(port))
+    return ports
+
+
+#: PID d'un socket dans la colonne « Process » de ``ss`` : ``pid=1234``.
+_SS_PID_RE = re.compile(r"pid=(\d+)")
+
+
+def _ports_unix() -> dict:
+    """``ss`` (iproute2, present sur toute distribution) puis repli ``lsof``."""
+    return _ports_ss() or _ports_lsof()
+
+
+def _ports_ss() -> dict:
+    ports = {}
+    out = run_quiet(["ss", "-lntp"])
+    if not out:
+        return ports
+    for line in out.splitlines():
+        pids = _SS_PID_RE.findall(line)
+        if not pids:
+            continue                      # en-tete, ou socket d'un autre user
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        port = fields[3].rsplit(":", 1)[-1]   # gere « [::]:3000 » et « *:3000 »
+        if not port.isdigit():
+            continue
+        for pid in pids:
+            ports.setdefault(int(pid), set()).add(int(port))
+    return ports
+
+
+def _ports_lsof() -> dict:
+    ports = {}
+    out = run_quiet(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN"])
+    if not out:
+        return ports
+    for line in out.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) < 9 or not fields[1].isdigit():
+            continue
+        port = fields[8].rsplit(":", 1)[-1]
+        if port.isdigit():
+            ports.setdefault(int(fields[1]), set()).add(int(port))
+    return ports
+
+
+# ---------------------------------------------------------------------------
+# Arbres de process
+# ---------------------------------------------------------------------------
 def find_task_processes(roots) -> List[NodeProcess]:
     """Liste tous les process des tasks, arbre complet.
 
@@ -82,13 +136,19 @@ def find_task_processes(roots) -> List[NodeProcess]:
     return _collect_task_trees(roots, _all_processes(), get_listening_ports())
 
 
+def _children_map(table) -> dict:
+    """Index ``ppid -> [pids]`` d'une table de process."""
+    children = {}
+    for pid, info in table.items():
+        children.setdefault(info["ppid"], []).append(pid)
+    return children
+
+
 def _collect_task_trees(roots, table, port_map) -> List[NodeProcess]:
     """Collecte les arbres de process de ``roots`` dans une table deja batie."""
     if not roots or not table:
         return []
-    children = {}
-    for pid, info in table.items():
-        children.setdefault(info["ppid"], []).append(pid)
+    children = _children_map(table)
 
     procs: List[NodeProcess] = []
     seen = set()
@@ -110,12 +170,18 @@ def _collect_task_trees(roots, table, port_map) -> List[NodeProcess]:
     return procs
 
 
+#: Noms d'executables consideres comme « Node », par plateforme.
+_NODE_NAMES = frozenset(("node.exe",) if IS_WIN else ("node", "nodejs"))
+
+
 def _is_node(info) -> bool:
-    """Vrai si l'entree de table ``_all_processes`` est un process Node."""
-    if IS_WIN:
-        return info.get("name", "").lower() == "node.exe"
-    cmd = (info.get("cmd") or "").lower()
-    return "node" in cmd and "taskpilot" not in cmd
+    """Vrai si l'entree de table ``_all_processes`` est un process Node.
+
+    On compare le **nom de l'executable**, jamais la ligne de commande : un
+    ``grep node`` attraperait ``nodemon``, ``/opt/nodejs/bin/npm`` ou n'importe
+    quel chemin contenant « node ».
+    """
+    return (info.get("name") or "").lower() in _NODE_NAMES
 
 
 def _node_orphans(table, port_map, seen) -> List[NodeProcess]:
@@ -148,24 +214,25 @@ def find_processes(roots) -> List[NodeProcess]:
     return task_procs + _node_orphans(table, port_map, seen)
 
 
+# ---------------------------------------------------------------------------
+# Inventaire des process : un backend par plateforme
+# ---------------------------------------------------------------------------
 def _all_processes() -> dict:
-    """Table ``pid -> {ppid, cmd, mem, cpu_time}`` de tous les process."""
+    """Table ``pid -> {ppid, name, cmd, mem, cpu_time}`` de tous les process."""
     if IS_WIN:
         return _all_processes_windows()
-    return _all_processes_unix()
+    if IS_LINUX:
+        return _all_processes_proc() or _all_processes_ps()
+    return _all_processes_ps()
 
 
 def _all_processes_windows() -> dict:
     table = {}
-    try:
-        out = subprocess.check_output(
-            ["wmic", "process", "get",
-             "CommandLine,KernelModeTime,Name,ParentProcessId,ProcessId,"
-             "UserModeTime,WorkingSetSize", "/format:csv"],
-            text=True, errors="replace", stderr=subprocess.DEVNULL,
-            creationflags=NO_WINDOW,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    out = run_quiet(
+        ["wmic", "process", "get",
+         "CommandLine,KernelModeTime,Name,ParentProcessId,ProcessId,"
+         "UserModeTime,WorkingSetSize", "/format:csv"])
+    if out is None:
         return _all_processes_powershell()
     for line in out.splitlines():
         line = line.strip()
@@ -204,14 +271,10 @@ def _all_processes_powershell() -> dict:
         "$_.WorkingSetSize,($_.KernelModeTime+$_.UserModeTime),$_.Name,"
         "$_.CommandLine }"
     )
-    try:
-        out = subprocess.check_output(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            text=True, errors="replace", stderr=subprocess.DEVNULL,
-            creationflags=NO_WINDOW,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return {}
+    out = run_quiet(["powershell", "-NoProfile", "-NonInteractive",
+                     "-Command", script])
+    if not out:
+        return table
     for line in out.splitlines():
         f = line.split("\t", 5)
         if len(f) < 5 or not f[0].isdigit():
@@ -225,21 +288,107 @@ def _all_processes_powershell() -> dict:
     return table
 
 
-def _all_processes_unix() -> dict:
+#: Ticks par seconde et taille de page, pour convertir les champs de ``/proc``.
+_CLK_TCK = float(os.sysconf("SC_CLK_TCK")) if hasattr(os, "sysconf") else 100.0
+_PAGE_SIZE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+
+
+def _all_processes_proc() -> dict:
+    """Backend Linux : lecture de ``/proc``.
+
+    Prefere a ``ps`` pour deux raisons : aucun process externe a lancer a
+    chaque rafraichissement, et un temps CPU au tick pres (``ps`` n'affiche que
+    des secondes entieres, ce qui rendrait la courbe de CPU% en escalier).
+
+    Un process peut disparaitre entre le listing et la lecture de ses fichiers :
+    chaque entree est donc lue de facon defensive et simplement ignoree si elle
+    s'evapore.
+    """
     table = {}
     try:
-        out = subprocess.check_output(
-            ["ps", "-eo", "pid,ppid,rss,time,args"], text=True, errors="replace")
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return {}
+        entries = os.listdir("/proc")
+    except OSError:
+        return table
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        info = _read_proc_entry(pid)
+        if info is not None:
+            table[pid] = info
+    return table
+
+
+def _read_proc_entry(pid: int):
+    """Entree de table pour ``/proc/<pid>``, ou ``None`` si illisible."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as f:
+            stat = f.read().decode("utf-8", "replace")
+    except (OSError, ValueError):
+        return None
+    # Le champ ``comm`` est entre parentheses et peut contenir espaces et
+    # parenthesing : on decoupe apres la DERNIERE parenthese fermante.
+    close = stat.rfind(")")
+    open_ = stat.find("(")
+    if close < 0 or open_ < 0:
+        return None
+    name = stat[open_ + 1:close]
+    fields = stat[close + 2:].split()
+    # Indices relatifs (champ N de proc(5) -> fields[N - 3]) : ppid=4,
+    # utime=14, stime=15, rss=24 (en pages).
+    if len(fields) < 22:
+        return None
+    if fields[0] == "Z":
+        # Process zombie : deja mort, il n'attend que d'etre recolte par son
+        # pere. Il n'a plus ni ligne de commande ni memoire, on ne peut pas le
+        # tuer — l'afficher dans l'onglet Process n'aurait aucun sens.
+        return None
+    try:
+        ppid = int(fields[1])
+        cpu_time = (int(fields[11]) + int(fields[12])) / _CLK_TCK
+        mem = int(fields[21]) * _PAGE_SIZE
+    except (ValueError, IndexError):
+        return None
+    return {"ppid": ppid or None, "name": name, "cmd": _read_cmdline(pid) or name,
+            "mem": mem, "cpu_time": cpu_time}
+
+
+def _read_cmdline(pid: int) -> str:
+    """Ligne de commande de ``/proc/<pid>/cmdline`` (arguments separes par NUL).
+
+    Vide pour les threads noyau, qui n'ont pas de ligne de commande.
+    """
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            raw = f.read()
+    except OSError:
+        return ""
+    return " ".join(raw.decode("utf-8", "replace").split("\x00")).strip()
+
+
+def _all_processes_ps() -> dict:
+    """Backend macOS / BSD (et repli Linux) : ``ps``.
+
+    Le nom de l'executable est derive du premier mot de ``args`` : demander
+    ``comm`` en colonne separee serait plus direct, mais ``comm`` vaut le chemin
+    complet sous macOS et un chemin contenant une espace decalerait toutes les
+    colonnes suivantes.
+    """
+    table = {}
+    out = run_quiet(["ps", "-eo", "pid,ppid,rss,time,args"])
+    if not out:
+        return table
     for line in out.splitlines()[1:]:
         fields = line.split(None, 4)
         if len(fields) < 5 or not fields[0].isdigit():
             continue
         pid, ppid, rss, cputime, args = fields
+        args = args.strip()
+        exe = args.split(" ", 1)[0]
         table[int(pid)] = {
             "ppid": int(ppid) if ppid.isdigit() else None,
-            "cmd": args.strip(),
+            "name": os.path.basename(exe),
+            "cmd": args,
             "mem": int(rss) * 1024 if rss.isdigit() else 0,
             "cpu_time": parse_ps_time(cputime)}
     return table
@@ -261,20 +410,39 @@ def parse_ps_time(s) -> Optional[float]:
         return None
 
 
+# ---------------------------------------------------------------------------
+# Arret
+# ---------------------------------------------------------------------------
 def kill_process(pid) -> bool:
-    """Tue un process (et son arbre sous Windows) par son PID."""
+    """Tue un process **et toute sa descendance** par son PID.
+
+    Hors Windows, on ne peut pas tuer le groupe : rien ne garantit qu'un PID
+    arbitraire (un serveur Node repere dans l'onglet Process, lance depuis un
+    terminal quelconque) soit seul dans le sien — on emporterait des process
+    etrangers. On reconstruit donc l'arbre et on tue chaque descendant, le pere
+    d'abord pour qu'il cesse d'en engendrer de nouveaux.
+    """
     try:
-        if IS_WIN:
-            subprocess.check_call(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=NO_WINDOW,
-            )
-        else:
-            os.kill(pid, signal.SIGKILL)
-        return True
-    except Exception:
+        pid = int(pid)
+    except (TypeError, ValueError):
         return False
+    if IS_WIN:
+        return kill_tree_win(pid)
+
+    children = _children_map(_all_processes())
+    order, stack = [], [pid]
+    while stack:
+        current = stack.pop(0)
+        if current in order:
+            continue                      # cycle impossible en theorie, sur en pratique
+        order.append(current)
+        stack.extend(children.get(current, []))
+    # ``kill_pid`` echoue sur les process deja morts (course avec l'inventaire) :
+    # seul le sort de la racine fait foi.
+    killed = kill_pid(pid)
+    for child in order[1:]:
+        kill_pid(child)
+    return killed
 
 
 def format_memory(num_bytes) -> str:

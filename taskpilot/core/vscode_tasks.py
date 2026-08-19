@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from taskpilot.core.system import IS_WIN
+from taskpilot.core.system import quote_arg, shell_argv
 
 #: Une task VS Code est conservee telle quelle sous forme de dict JSON.
 Task = Dict[str, object]
@@ -135,19 +135,6 @@ def _subst_vars(value, workspace: str):
     return value
 
 
-def _quote(arg: str) -> str:
-    if any(ch in arg for ch in ' "\t&|<>^'):
-        return '"' + arg.replace('"', '\\"') + '"'
-    return arg
-
-
-def _shell_argv(cmdline: str) -> List[str]:
-    """Encapsule une ligne de commande dans le shell de la plateforme."""
-    if IS_WIN:
-        return ["cmd", "/d", "/s", "/c", cmdline]
-    return ["/bin/sh", "-c", cmdline]
-
-
 def build_command(task: Task, workspace: str) -> Optional[CommandSpec]:
     """Construit la ``CommandSpec`` d'une task, ou ``None`` si task composee."""
     options = task.get("options") or {}
@@ -163,7 +150,7 @@ def build_command(task: Task, workspace: str) -> Optional[CommandSpec]:
     if ttype == "npm":
         script = task.get("script", "")
         cmdline = f"npm run {script}".strip() if script else "npm"
-        return CommandSpec(_shell_argv(cmdline), True, cwd, env, cmdline)
+        return CommandSpec(shell_argv(cmdline), True, cwd, env, cmdline)
 
     command = _subst_vars(task.get("command", ""), workspace)
     raw_args = task.get("args", []) or []
@@ -177,9 +164,9 @@ def build_command(task: Task, workspace: str) -> Optional[CommandSpec]:
         return None  # task composee (dependsOn) sans commande propre
 
     if ttype == "shell":
-        cmdline = (" ".join([command] + [_quote(a) for a in args])
+        cmdline = (" ".join([command] + [quote_arg(a) for a in args])
                    if args else command)
-        return CommandSpec(_shell_argv(cmdline), True, cwd, env, cmdline)
+        return CommandSpec(shell_argv(cmdline), True, cwd, env, cmdline)
 
     # type "process" (ou autre) : execution directe sans shell
     argv = [command] + args

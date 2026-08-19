@@ -9,11 +9,57 @@ permissions:
   contents: write
 
 jobs:
+  # Verifie que le code reste importable sous Linux : c'est la ou les regressions
+  # de portabilite se voient en premier (dependance Windows-only reintroduite,
+  # `os.startfile` non garde, backend PTY absent...). Volontairement sans Qt :
+  # le but est de valider la couche `core`, pas de rendre une fenetre.
+  portability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Byte-compile
+        run: python -m compileall -q taskpilot tools main.py mcp_main.py
+
+      - name: Import the platform layer
+        run: |
+          python - <<'PY'
+          from taskpilot.core import editors, logs, processes, scripts, system
+          from taskpilot.core import pty_backend, task_runner, vscode_tasks
+          assert not system.IS_WIN and system.IS_LINUX
+          assert pty_backend.HAVE_PTY, pty_backend.PTY_IMPORT_ERROR
+          assert system.shell_argv("echo hi")[0] == "/bin/sh"
+          assert system.default_shells(), "aucun shell detecte"
+          assert processes._all_processes(), "inventaire des process vide"
+          print("OK :", len(processes._all_processes()), "process,",
+                len(system.default_shells()), "shells")
+          PY
+
   # Deux builds volontairement isoles : l'app Qt et le serveur MCP n'ont aucune
-  # dependance commune (PySide6/pywinpty d'un cote, le SDK `mcp` de l'autre).
+  # dependance commune (PySide6/PTY d'un cote, le SDK `mcp` de l'autre).
   # Les melanger dans un seul environnement gonflerait les deux executables.
   build-app:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: TaskPilot-windows
+            binary: dist/TaskPilot.exe
+          - os: ubuntu-latest
+            artifact: TaskPilot-linux
+            binary: dist/TaskPilot
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -27,17 +73,27 @@ jobs:
       - name: Install dependencies
         run: python -m pip install setuptools "pyinstaller>=6.11" -r requirements.txt
 
-      - name: Build TaskPilot.exe
+      - name: Build TaskPilot
         run: python -m PyInstaller --noconfirm taskpilot.spec
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TaskPilot
-          path: dist/TaskPilot.exe
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
 
   build-mcp:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: TaskPilotMcp-windows
+            binary: dist/TaskPilotMcp.exe
+          - os: ubuntu-latest
+            artifact: TaskPilotMcp-linux
+            binary: dist/TaskPilotMcp
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -51,29 +107,41 @@ jobs:
       - name: Install dependencies
         run: python -m pip install setuptools "pyinstaller>=6.11" -r requirements-mcp.txt
 
-      - name: Build TaskPilotMcp.exe
+      - name: Build TaskPilotMcp
         run: python -m PyInstaller --noconfirm taskpilot-mcp.spec
 
       # Le transport MCP est stdio : un exe qui demarre mais ne repond pas au
       # handshake passerait le build sans que rien ne le signale. On verifie
       # donc initialize + tools/list avant de publier.
       - name: Smoke test (MCP handshake)
-        run: python tools/smoke_mcp.py dist/TaskPilotMcp.exe
+        run: python tools/smoke_mcp.py ${{ matrix.binary }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TaskPilotMcp
-          path: dist/TaskPilotMcp.exe
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
 
   release:
-    needs: [build-app, build-mcp]
+    needs: [portability, build-app, build-mcp]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      # Les binaires Linux et Windows portent le meme nom dans leurs artefacts
+      # respectifs : on les renomme avant publication pour qu'ils cohabitent
+      # dans une seule release.
+      - name: Stage release files
+        run: |
+          mkdir -p release
+          cp artifacts/TaskPilot-windows/TaskPilot.exe        release/TaskPilot.exe
+          cp artifacts/TaskPilotMcp-windows/TaskPilotMcp.exe  release/TaskPilotMcp.exe
+          cp artifacts/TaskPilot-linux/TaskPilot              release/TaskPilot-linux-x86_64
+          cp artifacts/TaskPilotMcp-linux/TaskPilotMcp        release/TaskPilotMcp-linux-x86_64
+          chmod +x release/TaskPilot-linux-x86_64 release/TaskPilotMcp-linux-x86_64
 
       - name: Create release
         uses: softprops/action-gh-release@v2
@@ -83,10 +151,16 @@ jobs:
           body: |
             Build automatique depuis `${{ github.sha }}`.
 
+            **Windows**
             - **`TaskPilot.exe`** — l'application (autonome, aucune installation requise).
-            - **`TaskPilotMcp.exe`** — le serveur MCP des logs seul, à déclarer
-              dans votre client (Zed, Claude Code…). Autonome lui aussi : ni
-              Python ni SDK `mcp` à installer, ni `PYTHONPATH` à configurer.
-          files: |
-            artifacts/TaskPilot/TaskPilot.exe
-            artifacts/TaskPilotMcp/TaskPilotMcp.exe
+            - **`TaskPilotMcp.exe`** — le serveur MCP des logs seul.
+
+            **Linux** (x86_64, glibc ≥ 2.35)
+            - **`TaskPilot-linux-x86_64`** — l'application. `chmod +x` puis lancer ;
+              `packaging/install-desktop.sh` l'ajoute au menu du bureau.
+            - **`TaskPilotMcp-linux-x86_64`** — le serveur MCP des logs seul.
+
+            Les serveurs MCP sont à déclarer dans votre client (Zed, Claude
+            Code…). Autonomes : ni Python ni SDK `mcp` à installer, ni
+            `PYTHONPATH` à configurer.
+          files: release/*

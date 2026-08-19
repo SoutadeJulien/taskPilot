@@ -1,25 +1,29 @@
-"""Notifications systeme (toasts Windows) via QSystemTrayIcon.
+"""Notifications systeme, avec deux transports selon ce que le bureau expose.
 
-Aucune dependance externe : ``QSystemTrayIcon.showMessage`` route vers le
-centre de notifications natif sous Windows 10/11. L'icone de la zone de
-notification est creee une seule fois et reste discrete ; elle ne sert qu'a
-emettre les bulles (un clic dessus ramene la fenetre au premier plan).
+1. **Zone de notification** (``QSystemTrayIcon.showMessage``) : route vers le
+   centre de notifications natif sous Windows 10/11, KDE, XFCE, Cinnamon… et
+   donne en prime une icone cliquable qui ramene la fenetre au premier plan.
+2. **``notify-send``** : repli Linux. GNOME (et les sessions Wayland en
+   general) n'expose plus de zone de notification : ``isSystemTrayAvailable``
+   y est faux et le transport 1 ne notifierait jamais. ``notify-send``
+   (libnotify) parle directement au serveur de notifications du bureau et est
+   present sur toutes les installations de bureau courantes.
+
+Si aucun des deux n'est disponible, ``notify`` devient un no-op silencieux :
+une notification manquante ne doit jamais empecher une task de tourner.
 """
 
-import os
+import shutil
+import subprocess
 
-from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QSystemTrayIcon
 
-ASSETS = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets")
+from taskpilot.core.system import IS_LINUX
+from taskpilot.qt.assets import app_icon, icon_path
 
 
 class Notifier:
-    """Emetteur de toasts adosse a une icone de zone de notification.
-
-    Degrade proprement : si le systeme n'expose pas de zone de notification
-    (``isSystemTrayAvailable`` faux), ``notify`` devient un no-op silencieux.
-    """
+    """Emetteur de notifications ; choisit son transport au demarrage."""
 
     #: Duree d'affichage des bulles (ms).
     TIMEOUT_MS = 6000
@@ -27,13 +31,16 @@ class Notifier:
     def __init__(self, window):
         self._window = window
         self._tray = None
-        if not QSystemTrayIcon.isSystemTrayAvailable():
-            return
+        self._notify_send = None
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self._setup_tray()
+        elif IS_LINUX:
+            self._notify_send = shutil.which("notify-send")
+
+    def _setup_tray(self):
         icon = self._window.windowIcon()
         if icon.isNull():
-            icon_path = os.path.join(ASSETS, "icon.ico")
-            if os.path.isfile(icon_path):
-                icon = QIcon(icon_path)
+            icon = app_icon()
         self._tray = QSystemTrayIcon(icon, self._window)
         self._tray.setToolTip("TaskPilot")
         self._tray.activated.connect(self._on_activated)
@@ -48,11 +55,27 @@ class Notifier:
 
     def notify(self, title, message, success=True):
         """Affiche une bulle. ``success`` choisit l'icone info/avertissement."""
-        if self._tray is None:
-            return
-        icon = (QSystemTrayIcon.Information if success
-                else QSystemTrayIcon.Warning)
-        self._tray.showMessage(title, message, icon, self.TIMEOUT_MS)
+        if self._tray is not None:
+            icon = (QSystemTrayIcon.Information if success
+                    else QSystemTrayIcon.Warning)
+            self._tray.showMessage(title, message, icon, self.TIMEOUT_MS)
+        elif self._notify_send:
+            self._notify_send_notify(title, message, success)
+
+    def _notify_send_notify(self, title, message, success):
+        argv = [self._notify_send, "--app-name=TaskPilot",
+                f"--expire-time={self.TIMEOUT_MS}",
+                "--urgency=" + ("normal" if success else "critical")]
+        path = icon_path()
+        if path:
+            argv.append(f"--icon={path}")
+        # ``--`` protege un titre ou un message commencant par « - ».
+        argv += ["--", title, message]
+        try:
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL)
+        except OSError:
+            self._notify_send = None      # inutile de reessayer a chaque task
 
     def dispose(self):
         if self._tray is not None:

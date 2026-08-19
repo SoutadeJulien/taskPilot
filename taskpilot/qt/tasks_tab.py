@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from taskpilot.core import logs
 from taskpilot.core import scripts as core_scripts
 from taskpilot.core.pty_console import HAVE_PTY, PtyConsole
+from taskpilot.core.system import default_shells, open_in_file_manager
 from taskpilot.core.task_runner import EVENT_EXIT, EVENT_OUTPUT, TaskConsole
 from taskpilot.core.vscode_tasks import (
     CommandSpec, build_task_tree, is_group_task, load_vscode_tasks, task_label,
@@ -36,11 +37,10 @@ MAX_CHARS_PER_TICK = 16 * 1024
 WATCH_MS = 300
 MAX_TAB_TITLE = 22
 
-SHELL_TYPES = (
-    ("PowerShell", ["powershell.exe", "-NoLogo"]),
-    ("CMD", ["cmd.exe"]),
-    ("Bash", ["bash", "-i"]),
-)
+#: Shells proposes par le bouton « nouvelle console », resolus une fois pour
+#: toutes au demarrage : PowerShell/CMD sous Windows, le shell de
+#: l'utilisateur puis bash/zsh/fish sous Unix (cf. ``system.default_shells``).
+SHELL_TYPES = default_shells()
 
 
 class TasksTab(QWidget):
@@ -1153,10 +1153,7 @@ class TasksTab(QWidget):
     def open_project_folder(self):
         path = self.project
         if path and os.path.isdir(path):
-            try:
-                os.startfile(path)  # noqa: S606
-            except OSError:
-                pass
+            open_in_file_manager(path)
 
     # -- Console courante (menu) ---------------------------------------------
     def _current_panel(self):

@@ -15,6 +15,8 @@ from dataclasses import dataclass, fields
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QColor, QFont, QPalette
 
+from taskpilot.core import system
+
 
 # ---------------------------------------------------------------------------
 # Modele d'un theme
@@ -431,17 +433,18 @@ DENSITY = 1.0
 DENSITY_MIN, DENSITY_MAX = 0.7, 1.5
 DENSITY_PRESETS = {"Compact": 0.82, "Normal": 1.0, "Confortable": 1.25}
 
-#: Police d'interface (utilisee par le QSS). Reglable via les options.
-UI_FONT = "Segoe UI"
+#: Police d'interface. Reglable via les options. La valeur par defaut depend de
+#: la plateforme (« Segoe UI » n'existe pas sous Linux) et peut etre une liste
+#: de familles de repli, resolue par ``resolve_families``.
+UI_FONT = system.DEFAULT_UI_FONT
 UI_FONT_SIZE = 13
 
 #: Surcouche d'accent personnalise (hex) ou ``None`` pour suivre le theme.
 ACCENT_OVERRIDE = None
 
 #: Choix proposes dans les menus de police / taille.
-UI_FONT_CHOICES = ("Segoe UI", "Inter", "Roboto", "Calibri", "Verdana", "Tahoma")
-MONO_FONT_CHOICES = ("Cascadia Mono, Consolas", "Cascadia Code", "Consolas",
-                     "JetBrains Mono", "Fira Code", "Courier New")
+UI_FONT_CHOICES = system.UI_FONT_CHOICES
+MONO_FONT_CHOICES = system.MONO_FONT_CHOICES
 UI_FONT_SIZES = (11, 12, 13, 14, 15, 16)
 MONO_FONT_SIZES = (9, 10, 11, 12, 13, 14)
 
@@ -458,7 +461,7 @@ PROJECT_PALETTE = ("#3b9eff", "#3fb950", "#f0b400", "#f85149", "#bf5af2",
                    "#00b8d4", "#8bc34a", "#ff9100", "#e91e63", "#9c27b0",
                    "#26c6da", "#cddc39", "#ff7043", "#5c6bc0", "#ec407a",
                    "#00bfa5", "#c0ca33", "#fb8c00", "#7e57c2", "#29b6f6")
-MONO_FAMILY = "Cascadia Mono, Consolas"
+MONO_FAMILY = system.DEFAULT_MONO_FONT
 MONO_SIZE = 10
 
 #: Entrees ANSI colorees (semantiques) communes a tous les themes ; le noir et
@@ -791,10 +794,26 @@ def set_mono_font(family=None, size=None):
     notifier.fonts_changed.emit()
 
 
+def resolve_families(spec, fallback):
+    """Decoupe une liste de familles (``"Cascadia Mono, Consolas"``) en liste.
+
+    Les valeurs par defaut sont volontairement des listes : la premiere famille
+    presente sur la machine gagne, ce qui permet a un meme reglage de donner un
+    rendu correct sous Windows, macOS et Linux — ou aucune famille n'est
+    universelle. La resolution effective est laissee a Qt (``setFamilies``),
+    qui sait aussi substituer une famille absente.
+    """
+    fams = [f.strip() for f in (spec or "").split(",") if f.strip()]
+    return fams or [fallback]
+
+
 def app_font():
     """Police par defaut de l'application (interface), en pixels pour coller
     a l'ancien dimensionnement QSS (``font-size: Npx``)."""
-    f = QFont(UI_FONT)
+    fams = resolve_families(UI_FONT, "sans-serif")
+    f = QFont(fams[0])
+    if len(fams) > 1:
+        f.setFamilies(fams)
     f.setPixelSize(UI_FONT_SIZE)
     return f
 
@@ -802,10 +821,15 @@ def app_font():
 def mono_font(size=None):
     """``QFont`` monospace des consoles, avec liste de familles de repli
     (``MONO_FAMILY`` peut etre ``"Cascadia Mono, Consolas"``)."""
-    fams = [f.strip() for f in MONO_FAMILY.split(",") if f.strip()]
-    f = QFont(fams[0] if fams else "Consolas")
+    fams = resolve_families(MONO_FAMILY, "monospace")
+    f = QFont(fams[0])
     if len(fams) > 1:
         f.setFamilies(fams)
+    # Sans cet indice, Qt peut substituer une police proportionnelle si aucune
+    # des familles demandees n'est installee : la grille du terminal se
+    # desaligne alors completement.
+    f.setStyleHint(QFont.Monospace)
+    f.setFixedPitch(True)
     f.setPointSize(int(size or MONO_SIZE))
     return f
 

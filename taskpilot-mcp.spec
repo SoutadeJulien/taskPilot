@@ -5,13 +5,17 @@ Volontairement disjoint de ``taskpilot.spec`` : l'exe GUI exclut le SDK ``mcp``,
 celui-ci exclut Qt et le PTY. Aucun des deux ne porte les dependances de
 l'autre — c'est toute la raison d'etre de ce second artefact.
 
-Build :  pyinstaller taskpilot-mcp.spec   (ou lancer build-mcp.bat)
-Sortie :  dist/TaskPilotMcp.exe
+Build :  pyinstaller taskpilot-mcp.spec   (ou lancer build-mcp.bat / .sh)
+Sortie :  dist/TaskPilotMcp.exe (Windows) ou dist/TaskPilotMcp (Linux, macOS)
 """
+
+import os
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
+
+IS_WIN = os.name == 'nt'
 
 # Le SDK `mcp` (FastMCP) charge des sous-modules par introspection : on les
 # collecte explicitement. `mcp.cli` est ecarte — c'est l'outillage en ligne de
@@ -34,7 +38,7 @@ a = Analysis(
     # du poids mort ici (~150 Mo de PySide6 en moins).
     excludes=[
         "PySide6", "shiboken6", "taskpilot.qt",
-        "winpty", "pyte", "tkinter",
+        "winpty", "ptyprocess", "pyte", "tkinter",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -64,5 +68,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="taskpilot/assets/icon.ico",
+    # Idem taskpilot.spec : une icone .ico ne concerne qu un binaire PE.
+    icon="taskpilot/assets/icon.ico" if IS_WIN else None,
 )

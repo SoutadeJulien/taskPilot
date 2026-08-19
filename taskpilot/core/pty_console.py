@@ -1,7 +1,8 @@
-"""Console adossée à un vrai pseudo-terminal (ConPTY via ``pywinpty``).
+"""Console adossée à un vrai pseudo-terminal (ConPTY sous Windows, ``pty``
+sous Unix — cf. ``pty_backend``).
 
 Contrairement à ``TaskConsole`` (sortie en lecture seule via un tube), le
-process tourne ici derrière un ConPTY : il croit parler à un vrai terminal,
+process tourne ici derrière un PTY : il croit parler à un vrai terminal,
 affiche donc ses prompts nativement et accepte des programmes interactifs /
 plein écran (``claude``, REPL, etc.). La sortie contient des séquences VT que
 la couche UI interprète avec ``pyte`` (cf. ``TerminalPanel``).
@@ -11,26 +12,19 @@ L'interface (``queue`` d'évènements, ``is_running``, ``kill``…) est alignée
 même façon.
 """
 
+import queue
 import threading
 import time
 
+from taskpilot.core.pty_backend import (
+    BACKEND_NAME, HAVE_PTY, MISSING_HINT, PTY_IMPORT_ERROR, PtyHandle)
 from taskpilot.core.task_runner import ANSI_RE, EVENT_EXIT, EVENT_OUTPUT
 
-try:                                  # Optionnel : absent en dev (Python 32-bit)
-    from winpty import PtyProcess
-    HAVE_PTY = True
-    PTY_IMPORT_ERROR = None
-except Exception as _e:               # noqa: BLE001
-    PtyProcess = None
-    HAVE_PTY = False
-    #: Raison de l'indisponibilité du PTY (affichée en fallback pour diagnostic).
-    PTY_IMPORT_ERROR = repr(_e)
-
-import queue
+__all__ = ["HAVE_PTY", "PTY_IMPORT_ERROR", "PtyConsole"]
 
 
 class PtyConsole:
-    """Pilote un process derrière un ConPTY : I/O brute + dimensions."""
+    """Pilote un process derrière un PTY : I/O brute + dimensions."""
 
     def __init__(self, label, spec, log_path=None, rows=30, cols=100):
         self.label = label
@@ -38,7 +32,7 @@ class PtyConsole:
         self.log_path = log_path
         self.interactive = True
         self.pty = True
-        self.proc = None              # winpty.PtyProcess
+        self.proc = None              # PtyHandle
         self.queue = queue.Queue()
         self.returncode = None
         self.started = False
@@ -51,13 +45,14 @@ class PtyConsole:
     def start(self) -> bool:
         if not HAVE_PTY:
             self.queue.put((EVENT_OUTPUT,
-                            "⚠ pywinpty indisponible : terminal impossible.\r\n"))
+                            f"⚠ {MISSING_HINT} indisponible : terminal "
+                            f"impossible ({BACKEND_NAME}).\r\n"))
             self.queue.put((EVENT_EXIT, -1))
             self.returncode = -1
             return False
         try:
-            self.proc = PtyProcess.spawn(
-                list(self.spec.argv), cwd=self.spec.cwd or None,
+            self.proc = PtyHandle.spawn(
+                self.spec.argv, cwd=self.spec.cwd or None,
                 env=self.spec.env, dimensions=(self.rows, self.cols))
         except Exception as e:  # noqa: BLE001
             self.queue.put((EVENT_OUTPUT, f"⚠ Echec du lancement : {e}\r\n"))
@@ -89,9 +84,12 @@ class PtyConsole:
             try:
                 self.returncode = self.proc.wait()
             except Exception:  # noqa: BLE001
-                self.returncode = getattr(self.proc, "exitstatus", 0)
+                self.returncode = self.proc.exitstatus
             if self.returncode is None:
                 self.returncode = 0
+            # Plus aucune lecture en cours : on peut rendre le descripteur du
+            # PTY sans risquer de le fermer sous les pieds de ce thread.
+            self.proc.close()
             self.queue.put((EVENT_EXIT, self.returncode))
             self._close_log()
 
@@ -144,11 +142,11 @@ class PtyConsole:
                 and self.proc.isalive())
 
     def kill(self):
+        """Tue le process ET toute sa descendance."""
         if self.proc is not None:
-            try:
-                self.proc.terminate(force=True)
-            except Exception:  # noqa: BLE001
-                pass
+            self.proc.kill()
 
     def cleanup(self):
+        # Le descripteur du PTY est ferme par le thread lecteur, une fois sur
+        # de n'avoir plus rien a lire (cf. ``_read_loop``).
         pass
